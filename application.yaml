@@ -9,7 +9,7 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/SEU-USUARIO/gitops-lab.git   # <-- troque
+    repoURL: https://github.com/Marcosgois/gitops-lab.git
     targetRevision: main
     path: apps/hello                 # a pasta dentro do repo
 
