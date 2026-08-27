@@ -2,3 +2,9 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: gitops-lab
+  labels:
+    # Faz o operador do OpenShift GitOps criar, DENTRO deste namespace, o
+    # RoleBinding que da ao ArgoCD permissao de gerenciar recursos aqui.
+    # Sem isto, o controller so consegue criar Namespace e ConfigMap:
+    # o ClusterRole padrao nao inclui apps/Deployment, Service nem Route.
+    argocd.argoproj.io/managed-by: openshift-gitops
