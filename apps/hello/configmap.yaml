@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hello-content
+  namespace: gitops-lab
+data:
+  index.html: |
+    <!doctype html>
+    <meta charset="utf-8">
+    <title>GitOps no IBM Z</title>
+    <style>
+      body{font-family:system-ui,sans-serif;background:#161616;color:#f4f4f4;
+           display:grid;place-items:center;height:100vh;margin:0}
+      .c{text-align:center} h1{font-weight:300;font-size:2.5rem;margin:0 0 .5rem}
+      code{background:#262626;padding:.2rem .5rem;border-radius:4px;color:#78a9ff}
+      p{color:#a8a8a8}
+    </style>
+    <div class="c">
+      <h1>versao 1</h1>
+      <p>servido de um container <code>s390x</code>, sincronizado do Git</p>
+      <p>edite este arquivo, faca push, e veja mudar sozinho</p>
+    </div>

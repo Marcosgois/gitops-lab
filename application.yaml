@@ -1,0 +1,25 @@
+# O CR Application e o unico objeto que voce cria a mao.
+# Ele nao contem a aplicacao: contem o ENDERECO de onde a aplicacao mora.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hello
+  namespace: openshift-gitops        # onde o ArgoCD vive, nao onde o app vai rodar
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/SEU-USUARIO/gitops-lab.git   # <-- troque
+    targetRevision: main
+    path: apps/hello                 # a pasta dentro do repo
+
+  destination:
+    server: https://kubernetes.default.svc   # este proprio cluster
+    namespace: gitops-lab
+
+  syncPolicy:
+    automated:
+      prune: true       # apagou do Git -> apaga do cluster
+      selfHeal: true    # mexeu no cluster a mao -> ArgoCD desfaz
+    syncOptions:
+      - CreateNamespace=true

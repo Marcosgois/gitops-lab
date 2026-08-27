@@ -1,0 +1,9 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: hello
+  namespace: gitops-lab
+spec:
+  to: {kind: Service, name: hello}
+  port: {targetPort: 8080}
+  tls: {termination: edge, insecureEdgeTerminationPolicy: Redirect}

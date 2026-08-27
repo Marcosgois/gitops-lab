@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: gitops-lab
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: hello}
+  template:
+    metadata:
+      labels: {app: hello}
+    spec:
+      containers:
+      - name: httpd
+        image: registry.access.redhat.com/ubi9/httpd-24:latest
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: content
+          mountPath: /var/www/html
+        resources:
+          requests: {cpu: 10m, memory: 64Mi}
+          limits:   {cpu: 200m, memory: 256Mi}
+      volumes:
+      - name: content
+        configMap: {name: hello-content}
