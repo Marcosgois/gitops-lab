@@ -2,6 +2,19 @@ apiVersion: v1
 kind: Namespace
 metadata: {name: multiarch-demo-app}
 ---
+# SEM ISTO O PLACEMENT NAO ENXERGA CLUSTER NENHUM.
+# Um ManagedClusterSet so pode ser usado por um Placement se estiver
+# explicitamente "amarrado" ao namespace onde o Placement vive. E o portao
+# de RBAC: quem tem permissao no namespace so alcanca os conjuntos amarrados
+# a ele. Sintoma de esquecer: Placement com 0 clusters e nada implanta.
+apiVersion: cluster.open-cluster-management.io/v1beta2
+kind: ManagedClusterSetBinding
+metadata:
+  name: default
+  namespace: multiarch-demo-app
+spec:
+  clusterSet: default
+---
 # O Placement e a peca que ESCOLHE a arquitetura.
 # Trocar 's390x' por 'amd64' move a aplicacao de cluster — e o ACM faz o
 # resto: instala no novo, remove do antigo.
