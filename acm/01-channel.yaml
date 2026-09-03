@@ -1,0 +1,13 @@
+# O Channel diz ao ACM ONDE estao os manifestos. Repo publico: sem credencial.
+apiVersion: v1
+kind: Namespace
+metadata: {name: multiarch-demo-ch}
+---
+apiVersion: apps.open-cluster-management.io/v1
+kind: Channel
+metadata:
+  name: gitops-lab
+  namespace: multiarch-demo-ch
+spec:
+  type: Git
+  pathname: https://github.com/Marcosgois/gitops-lab.git

@@ -1,0 +1,69 @@
+# Mesma imagem, mesmo manifesto, duas arquiteturas.
+# O registry entrega o binario certo pelo manifest list; o container descobre
+# onde esta em tempo de execucao e escreve isso na pagina.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multiarch-demo
+  namespace: multiarch-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: multiarch-demo}
+  template:
+    metadata:
+      labels: {app: multiarch-demo}
+    spec:
+      containers:
+      - name: web
+        image: registry.access.redhat.com/ubi9/httpd-24:latest
+        command: ["/bin/bash","-c"]
+        args:
+        - |
+          set -euo pipefail
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            s390x)  COR="#0f62fe"; SEL="IBM Z / LinuxONE" ;;
+            x86_64) COR="#da1e28"; SEL="x86_64" ;;
+            *)      COR="#525252"; SEL="$ARCH" ;;
+          esac
+          cat > /var/www/html/index.html <<HTML
+          <!doctype html><meta charset="utf-8"><title>multiarch-demo</title>
+          <style>
+            body{font-family:system-ui,sans-serif;background:#161616;color:#f4f4f4;
+                 display:grid;place-items:center;height:100vh;margin:0}
+            .c{text-align:center}
+            .a{font-size:4rem;font-weight:300;color:$COR;margin:0}
+            .s{color:#a8a8a8;margin:.25rem 0 2rem}
+            table{border-collapse:collapse;font-size:.9rem;color:#c6c6c6}
+            td{padding:.3rem .9rem;border-top:1px solid #393939;text-align:left}
+            td:first-child{color:#6f6f6f}
+          </style>
+          <div class="c">
+            <p class="a">$ARCH</p>
+            <p class="s">$SEL</p>
+            <table>
+              <tr><td>pod</td><td>$HOSTNAME</td></tr>
+              <tr><td>no</td><td>$NODE_NAME</td></tr>
+              <tr><td>kernel</td><td>$(uname -r)</td></tr>
+              <tr><td>endianness</td><td>$(python3 -c 'import sys;print(sys.byteorder)' 2>/dev/null || echo '-')</td></tr>
+            </table>
+          </div>
+          HTML
+          exec /usr/bin/run-httpd
+        volumeMounts:
+        # /var/www/html pertence a default:root sem escrita para o grupo, e o
+        # container roda com UID aleatorio (SCC restricted). Um emptyDir por
+        # cima resolve e mantem o pod sem privilegio nenhum.
+        - name: html
+          mountPath: /var/www/html
+        env:
+        - name: NODE_NAME
+          valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+        ports: [{containerPort: 8080}]
+        resources:
+          requests: {cpu: 10m, memory: 64Mi}
+          limits:   {cpu: 200m, memory: 256Mi}
+      volumes:
+      - name: html
+        emptyDir: {}

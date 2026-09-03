@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Namespace
+metadata: {name: multiarch-demo-app}
+---
+# O Placement e a peca que ESCOLHE a arquitetura.
+# Trocar 's390x' por 'amd64' move a aplicacao de cluster — e o ACM faz o
+# resto: instala no novo, remove do antigo.
+apiVersion: cluster.open-cluster-management.io/v1beta1
+kind: Placement
+metadata:
+  name: multiarch-placement
+  namespace: multiarch-demo-app
+spec:
+  clusterSets: [default]
+  predicates:
+  - requiredClusterSelector:
+      labelSelector:
+        matchLabels:
+          arch: s390x            # <<< AQUI se escolhe a arquitetura
+---
+apiVersion: apps.open-cluster-management.io/v1
+kind: Subscription
+metadata:
+  name: multiarch-demo
+  namespace: multiarch-demo-app
+  labels:
+    app: multiarch-demo
+  annotations:
+    apps.open-cluster-management.io/git-path: apps/multiarch
+    apps.open-cluster-management.io/git-branch: main
+spec:
+  channel: multiarch-demo-ch/gitops-lab
+  placement:
+    placementRef:
+      name: multiarch-placement
+      kind: Placement
+---
+# O objeto Application agrupa tudo na aba Applications do console.
+apiVersion: app.k8s.io/v1beta1
+kind: Application
+metadata:
+  name: multiarch-demo
+  namespace: multiarch-demo-app
+spec:
+  componentKinds:
+  - group: apps.open-cluster-management.io
+    kind: Subscription
+  selector:
+    matchLabels:
+      app: multiarch-demo
