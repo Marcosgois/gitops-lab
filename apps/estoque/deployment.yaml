@@ -28,9 +28,9 @@ spec:
         # --- Demo do ArgoCD: mude estes dois valores no Git, faça push e veja
         # a página trocar de versão e de cor sem perder nenhum dado.
         - name: APP_VERSAO
-          value: "v1"
+          value: "v2"
         - name: APP_COR
-          value: "#0f62fe"
+          value: "#198038"
         # ---
         - name: NODE_NAME
           valueFrom:
