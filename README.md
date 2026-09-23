@@ -109,14 +109,14 @@ e remover itens.
 
 ### O Secret não vai para o Git
 
-O app lê `MONGODB_URI` do Secret `estoque-mongodb`, criado à mão depois que o ArgoCD
-cria o namespace. Recursos criados fora do Git não têm a anotação de tracking, então o
+O app lê `MONGODB_URI` do Secret `estoque-mongodb`, criado à mão no namespace `demos` (o mesmo das VMs do
+MongoDB, para a Topologia do console mostrar a ligação app → VMs). Recursos criados fora do Git não têm a anotação de tracking, então o
 `prune` do ArgoCD não os apaga.
 
 ```bash
-oc create secret generic estoque-mongodb -n estoque-demo \
+oc create secret generic estoque-mongodb -n demos \
   --from-literal=MONGODB_URI='mongodb://<usuario>:<senha>@<host1>,<host2>,<host3>/estoque?replicaSet=<rs>&authSource=estoque'
-oc rollout restart deploy/estoque -n estoque-demo
+oc rollout restart deploy/estoque -n demos
 ```
 
 Sem o Secret, a página sobe e diz o que falta — não fica em `CreateContainerConfigError`.
@@ -127,18 +127,18 @@ Sem o Secret, a página sobe e diz o que falta — não fica em `CreateContainer
 |---|---|
 | F5 várias vezes | o pod muda, o dado não |
 | `+` / `−` e F5 | a gravação está no banco, não no navegador |
-| `oc delete pod -l app=estoque -n estoque-demo` | pod novo, mesmo dado |
+| `oc delete pod -l app=estoque -n demos` | pod novo, mesmo dado |
 | migrar uma VM do replica set | o app segue gravando; nada se perde |
 | mudar `APP_VERSAO` e `APP_COR` no `deployment.yaml`, push | o ArgoCD aplica sozinho: versão e cor novas, mesmos dados |
-| `oc scale deploy/estoque --replicas=5 -n estoque-demo` | o `selfHeal` volta para 2 — o Git manda |
+| `oc scale deploy/estoque --replicas=5 -n demos` | o `selfHeal` volta para 2 — o Git manda |
 
 ### Build
 
 O `BuildConfig` roda uma vez quando é criado. Mudou o código em `src/`? Faça push e:
 
 ```bash
-oc start-build estoque -n estoque-demo --follow
-oc rollout restart deploy/estoque -n estoque-demo
+oc start-build estoque -n demos --follow
+oc rollout restart deploy/estoque -n demos
 ```
 
 O S2I roda `npm install`, então o build precisa de saída para `registry.npmjs.org`.

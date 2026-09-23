@@ -2,7 +2,9 @@ apiVersion: image.openshift.io/v1
 kind: ImageStream
 metadata:
   name: estoque
-  namespace: estoque-demo
+  namespace: demos
+  labels:
+    app.kubernetes.io/part-of: estoque
 spec:
   lookupPolicy:
     local: true

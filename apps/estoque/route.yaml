@@ -2,7 +2,7 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: estoque
-  namespace: estoque-demo
+  namespace: demos
 spec:
   to:
     kind: Service

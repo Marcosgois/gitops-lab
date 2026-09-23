@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: estoque
-  namespace: estoque-demo
+  namespace: demos
 spec:
   selector: {app: estoque}
   ports:

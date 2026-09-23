@@ -14,10 +14,8 @@ spec:
     path: apps/estoque            # só os .yaml desta pasta; src/ é do build
   destination:
     server: https://kubernetes.default.svc
-    namespace: estoque-demo
+    namespace: demos                 # o mesmo das VMs do MongoDB: a Topologia liga os dois
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-    - CreateNamespace=true

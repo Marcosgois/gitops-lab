@@ -5,7 +5,9 @@ apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:
   name: estoque
-  namespace: estoque-demo
+  namespace: demos
+  labels:
+    app.kubernetes.io/part-of: estoque
 spec:
   runPolicy: Serial
   source:

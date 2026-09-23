@@ -2,14 +2,23 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: estoque
-  namespace: estoque-demo
+  namespace: demos
+  labels:
+    app.kubernetes.io/name: estoque
+    app.kubernetes.io/part-of: estoque           # agrupa na Topologia do console
+    app.openshift.io/runtime: nodejs             # ícone do Node.js na Topologia
+  annotations:
+    # Desenha, na Topologia, a seta do app para as 3 VMs do replica set MongoDB.
+    app.openshift.io/connects-to: '[{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"zcd-mongo-1"},{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"zcd-mongo-2"},{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"zcd-mongo-3"}]'
 spec:
   replicas: 2
   selector:
     matchLabels: {app: estoque}
   template:
     metadata:
-      labels: {app: estoque}
+      labels:
+        app: estoque
+        app.kubernetes.io/part-of: estoque
     spec:
       # Um pod em cada nó: o refresh alterna entre eles e o dado é o mesmo.
       topologySpreadConstraints:
@@ -20,7 +29,7 @@ spec:
           matchLabels: {app: estoque}
       containers:
       - name: app
-        image: image-registry.openshift-image-registry.svc:5000/estoque-demo/estoque:latest
+        image: image-registry.openshift-image-registry.svc:5000/demos/estoque:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
