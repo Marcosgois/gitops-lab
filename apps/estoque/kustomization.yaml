@@ -1,0 +1,10 @@
+# Base do app. O ArgoCD do lone (s390x) aplica esta pasta como está;
+# o overlay apps/estoque-x86 reaproveita a mesma base no cluster x86.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- imagestream.yaml
+- buildconfig.yaml
+- deployment.yaml
+- service.yaml
+- route.yaml
