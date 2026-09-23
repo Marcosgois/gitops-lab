@@ -1,0 +1,23 @@
+# Application do app "estoque". Como o application.yaml do hello, fica FORA da
+# pasta do app — o ArgoCD não gerencia a si mesmo.
+#   oc apply -f application-estoque.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: estoque
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Marcosgois/gitops-lab.git
+    targetRevision: main
+    path: apps/estoque            # só os .yaml desta pasta; src/ é do build
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: estoque-demo
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

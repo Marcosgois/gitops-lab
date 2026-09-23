@@ -1,0 +1,29 @@
+# O build roda DENTRO do cluster: clona esta pasta do Git, roda o S2I do Node.js
+# (npm install) e gera uma imagem s390x no registry interno. Nenhum pipeline
+# externo, nenhuma imagem x86 envolvida.
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: estoque
+  namespace: estoque-demo
+spec:
+  runPolicy: Serial
+  source:
+    type: Git
+    git:
+      uri: https://github.com/Marcosgois/gitops-lab.git
+      ref: main
+    contextDir: apps/estoque/src
+  strategy:
+    type: Source
+    sourceStrategy:
+      from:
+        kind: ImageStreamTag
+        namespace: openshift
+        name: nodejs:20-ubi9
+  output:
+    to:
+      kind: ImageStreamTag
+      name: estoque:latest
+  triggers:
+  - type: ConfigChange

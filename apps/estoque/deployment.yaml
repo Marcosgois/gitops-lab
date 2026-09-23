@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: estoque
+  namespace: estoque-demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: estoque}
+  template:
+    metadata:
+      labels: {app: estoque}
+    spec:
+      # Um pod em cada nó: o refresh alterna entre eles e o dado é o mesmo.
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: {app: estoque}
+      containers:
+      - name: app
+        image: image-registry.openshift-image-registry.svc:5000/estoque-demo/estoque:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        # --- Demo do ArgoCD: mude estes dois valores no Git, faça push e veja
+        # a página trocar de versão e de cor sem perder nenhum dado.
+        - name: APP_VERSAO
+          value: "v1"
+        - name: APP_COR
+          value: "#0f62fe"
+        # ---
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef: {fieldPath: spec.nodeName}
+        - name: MONGODB_URI
+          valueFrom:
+            secretKeyRef:
+              name: estoque-mongodb      # criado à mão, NUNCA vai para o Git
+              key: MONGODB_URI
+              optional: true             # sem ele a página sobe e explica o que falta
+        readinessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          requests: {cpu: 20m, memory: 96Mi}
+          limits:   {cpu: 500m, memory: 256Mi}

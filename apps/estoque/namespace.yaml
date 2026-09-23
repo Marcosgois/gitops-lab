@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: estoque-demo
+  labels:
+    # Dá ao ArgoCD permissão de gerenciar Deployment, BuildConfig, Route etc. aqui
+    # (mesma armadilha do apps/hello — ver README).
+    argocd.argoproj.io/managed-by: openshift-gitops

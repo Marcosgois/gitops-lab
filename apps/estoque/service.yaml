@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: estoque
+  namespace: estoque-demo
+spec:
+  selector: {app: estoque}
+  ports:
+  - port: 8080
+    targetPort: 8080

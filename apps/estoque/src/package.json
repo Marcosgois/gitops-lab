@@ -1,0 +1,16 @@
+{
+  "name": "estoque-demo",
+  "version": "1.0.0",
+  "description": "Estoque de peças com dados fictícios, gravado num replica set MongoDB",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mongodb": "6.20.0"
+  }
+}

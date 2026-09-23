@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estoque de peças</title>
+<style>
+  :root{
+    --chao:#f2f4f8; --superficie:#ffffff; --tinta:#161616; --apagado:#525252;
+    --linha:#dde1e6; --realce:#0f62fe; --alerta-fundo:#fcf4d6; --alerta:#8e6a00;
+    --erro-fundo:#fff1f1; --erro:#a2191f; --ok:#198038;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --chao:#121619; --superficie:#1e2327; --tinta:#f2f4f8; --apagado:#a2a9b0;
+      --linha:#343a3f; --alerta-fundo:#3d3100; --alerta:#f1c21b;
+      --erro-fundo:#3a1113; --erro:#ff8389; --ok:#42be65;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--chao);color:var(--tinta);
+       font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:1080px;margin:0 auto;padding:28px 16px 48px;display:grid;gap:20px}
+  main>*{min-width:0}
+  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px 16px}
+  h1{margin:0;font-size:28px;font-weight:400;letter-spacing:-.01em;text-wrap:balance}
+  .versao{font:600 12px var(--mono);color:#fff;background:var(--realce);padding:3px 9px;border-radius:999px}
+  .sub{color:var(--apagado);margin:0;flex-basis:100%}
+
+  .onde{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1px;
+        background:var(--linha);border:1px solid var(--linha)}
+  .onde div{background:var(--superficie);padding:14px 16px;display:grid;gap:2px}
+  .rotulo{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--apagado)}
+  .valor{font:14px var(--mono);overflow-wrap:anywhere}
+  .valor b{font-family:inherit}
+  .arch{color:var(--realce);font-weight:600}
+
+  .aviso{padding:12px 16px;border-left:4px solid var(--erro);background:var(--erro-fundo);color:var(--erro)}
+  .aviso[hidden]{display:none}
+
+  .quadro{background:var(--superficie);border:1px solid var(--linha)}
+  .barra{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;
+         padding:12px 16px;border-bottom:1px solid var(--linha)}
+  .barra h2{margin:0;font-size:16px;font-weight:600}
+  .rolagem{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:10px 16px;text-align:left;border-bottom:1px solid var(--linha);white-space:nowrap}
+  th{font-size:12px;font-weight:600;color:var(--apagado)}
+  td.num,th.num{text-align:right}
+  td.sku{font-family:var(--mono);font-size:13px}
+  td.quando{color:var(--apagado);font-size:13px}
+  tr.mudou td{animation:pisca 1.6s ease-out}
+  @keyframes pisca{from{background:color-mix(in srgb,var(--realce) 18%,transparent)}to{background:transparent}}
+  .qtd{display:inline-flex;align-items:center;gap:6px}
+  .qtd span{min-width:3ch;text-align:right;font-weight:600}
+  .baixo{font-size:11px;font-weight:600;color:var(--alerta);background:var(--alerta-fundo);padding:1px 6px;border-radius:999px}
+
+  button{font:inherit;cursor:pointer;border:1px solid var(--linha);background:var(--superficie);color:var(--tinta);
+         padding:6px 12px;border-radius:4px}
+  button:hover{border-color:var(--realce)}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--realce);outline-offset:1px}
+  button.mini{padding:0;width:28px;height:28px;line-height:1;font-size:16px}
+  button.primario{background:var(--realce);border-color:var(--realce);color:#fff}
+  button.remover{color:var(--erro);border-color:transparent;background:transparent}
+  button:disabled{opacity:.5;cursor:wait}
+
+  form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;padding:16px;align-items:end}
+  label{display:grid;gap:4px;font-size:12px;color:var(--apagado)}
+  input{font:inherit;color:var(--tinta);background:var(--chao);border:1px solid var(--linha);border-radius:4px;padding:7px 9px;width:100%}
+
+  .rodape{color:var(--apagado);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 18px}
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--tinta);color:var(--chao);
+         padding:10px 16px;border-radius:4px;font-size:14px;max-width:calc(100% - 32px);opacity:0;transition:opacity .2s}
+  .toast.on{opacity:1}
+  @media (prefers-reduced-motion:reduce){tr.mudou td{animation:none}.toast{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Estoque de peças</h1>
+    <span class="versao" id="versao">v?</span>
+    <p class="sub">Dados fictícios, gravados num MongoDB com 3 réplicas. Altere, dê refresh, migre uma VM: o dado continua lá.</p>
+  </header>
+
+  <section class="onde" aria-label="Onde esta página está rodando">
+    <div><span class="rotulo">Servido por</span><span class="valor" id="pod">—</span></div>
+    <div><span class="rotulo">Nó e arquitetura</span><span class="valor" id="no">—</span></div>
+    <div><span class="rotulo">Gravando no MongoDB (primário)</span><span class="valor" id="primario">—</span></div>
+    <div><span class="rotulo">Última leitura do banco</span><span class="valor" id="lido">—</span></div>
+  </section>
+
+  <p class="aviso" id="aviso" role="alert" hidden></p>
+
+  <section class="quadro">
+    <div class="barra">
+      <h2 id="contagem">Itens</h2>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="recarregar">Recarregar do banco</button>
+        <button type="button" id="restaurar">Restaurar dados de exemplo</button>
+      </div>
+    </div>
+    <div class="rolagem">
+      <table>
+        <thead><tr>
+          <th>SKU</th><th>Item</th><th>Categoria</th><th class="num">Quantidade</th>
+          <th class="num">Preço</th><th>Última alteração</th><th><span class="rotulo" style="position:absolute;left:-9999px">Ações</span></th>
+        </tr></thead>
+        <tbody id="itens"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="quadro">
+    <div class="barra"><h2>Novo item</h2></div>
+    <form id="novo">
+      <label>SKU<input name="sku" required maxlength="20" placeholder="ELE-R24"></label>
+      <label style="grid-column:span 2">Item<input name="nome" required maxlength="80" placeholder="Relé de interface 24 V"></label>
+      <label>Categoria<input name="categoria" maxlength="30" placeholder="Elétrica"></label>
+      <label>Quantidade<input name="quantidade" type="number" min="0" step="1" value="10"></label>
+      <label>Preço (R$)<input name="preco" type="number" min="0" step="0.01" value="0"></label>
+      <button type="submit" class="primario">Gravar no banco</button>
+    </form>
+  </section>
+
+  <p class="rodape">
+    <span id="rs">replica set —</span>
+    <span id="banco">banco —</span>
+    <span>Cada gravação usa <b>writeConcern majority</b>: só confirma depois que 2 das 3 réplicas têm o dado.</span>
+  </p>
+</main>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const hora = (d) => new Date(d).toLocaleTimeString('pt-BR');
+let ultimoAlterado = null;
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('on'), 2600);
+}
+
+async function api(metodo, caminho, corpo) {
+  const r = await fetch(caminho, {
+    method: metodo,
+    headers: corpo ? { 'Content-Type': 'application/json' } : {},
+    body: corpo ? JSON.stringify(corpo) : undefined,
+    cache: 'no-store',
+  });
+  const dados = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(dados.erro || `HTTP ${r.status}`), { dados });
+  return dados;
+}
+
+function el(tag, props = {}, filhos = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const f of filhos) e.append(f);
+  return e;
+}
+
+function mostrarInfo(info) {
+  if (!info) return;
+  document.documentElement.style.setProperty('--realce', info.cor);
+  $('versao').textContent = info.versao;
+  $('pod').textContent = info.pod;
+  $('no').replaceChildren(document.createTextNode(info.no + ' · '), el('span', { class: 'arch', text: info.arch }));
+}
+
+async function alterar(id, corpo, rotulo) {
+  try {
+    const r = await api('PATCH', `/api/itens/${id}`, corpo);
+    ultimoAlterado = id;
+    toast(`${rotulo}: ${r.item.nome} agora tem ${r.item.quantidade}`);
+    await carregar();
+  } catch (e) { toast(e.message); }
+}
+
+function linha(item) {
+  const menos = el('button', { type: 'button', class: 'mini', 'aria-label': `Tirar 1 de ${item.nome}`, text: '−',
+    onclick: () => alterar(item._id, { delta: -1 }, 'Saída') });
+  const mais = el('button', { type: 'button', class: 'mini', 'aria-label': `Pôr 1 em ${item.nome}`, text: '+',
+    onclick: () => alterar(item._id, { delta: 1 }, 'Entrada') });
+  const qtd = el('span', { text: item.quantidade, title: 'Clique duas vezes para digitar a quantidade' });
+  qtd.addEventListener('dblclick', () => {
+    const v = prompt(`Nova quantidade de ${item.nome}`, item.quantidade);
+    if (v !== null && v.trim() !== '') alterar(item._id, { quantidade: Number(v) }, 'Ajuste');
+  });
+  const celQtd = el('td', { class: 'num' }, [el('span', { class: 'qtd' }, [menos, qtd, mais])]);
+  if (item.quantidade < 20) celQtd.prepend(el('span', { class: 'baixo', text: 'baixo' }), ' ');
+  const remover = el('button', { type: 'button', class: 'remover', text: 'Remover',
+    onclick: async () => {
+      if (!confirm(`Remover ${item.nome} do banco?`)) return;
+      try { await api('DELETE', `/api/itens/${item._id}`); toast(`${item.nome} removido`); await carregar(); }
+      catch (e) { toast(e.message); }
+    } });
+  return el('tr', { class: item._id === ultimoAlterado ? 'mudou' : '' }, [
+    el('td', { class: 'sku', text: item.sku }),
+    el('td', { text: item.nome }),
+    el('td', { text: item.categoria }),
+    celQtd,
+    el('td', { class: 'num', text: moeda.format(item.preco) }),
+    el('td', { class: 'quando', text: `${hora(item.atualizadoEm)} · ${item.atualizadoPor}` }),
+    el('td', {}, [remover]),
+  ]);
+}
+
+async function carregar() {
+  try {
+    const d = await api('GET', '/api/estado');
+    $('aviso').hidden = true;
+    mostrarInfo(d.info);
+    $('primario').textContent = d.mongo.primario || '—';
+    $('lido').textContent = `${hora(d.lidoEm)} · ${d.ms} ms`;
+    $('rs').textContent = `replica set ${d.mongo.replicaSet || '—'} · ${d.mongo.membros.length} membros: ${d.mongo.membros.join(', ')}`;
+    $('banco').textContent = `banco ${d.mongo.banco} · coleção ${d.mongo.colecao}`;
+    $('contagem').textContent = `${d.itens.length} itens · ${d.itens.reduce((s, i) => s + i.quantidade, 0)} unidades`;
+    $('itens').replaceChildren(...d.itens.map(linha));
+  } catch (e) {
+    mostrarInfo(e.dados && e.dados.info);
+    $('aviso').textContent = e.message;
+    $('aviso').hidden = false;
+  }
+}
+
+$('recarregar').addEventListener('click', () => carregar().then(() => toast('Lido de novo do MongoDB')));
+$('restaurar').addEventListener('click', async () => {
+  if (!confirm('Apagar tudo e voltar aos 8 itens de exemplo?')) return;
+  try { await api('POST', '/api/restaurar'); ultimoAlterado = null; toast('Dados de exemplo restaurados'); await carregar(); }
+  catch (e) { toast(e.message); }
+});
+$('novo').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = new FormData(ev.target);
+  const botao = ev.target.querySelector('button');
+  botao.disabled = true;
+  try {
+    await api('POST', '/api/itens', Object.fromEntries(f));
+    toast(`${f.get('nome')} gravado no banco`);
+    ev.target.reset();
+    await carregar();
+  } catch (e) { toast(e.message); }
+  finally { botao.disabled = false; }
+});
+
+carregar();
+</script>
+</body>
+</html>

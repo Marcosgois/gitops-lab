@@ -95,3 +95,51 @@ oc get applications.argoproj.io -A
 
 Isso causou um diagnóstico errado aqui: o `oc apply` respondia `configured` (existia)
 enquanto o `oc get` dizia que não havia nada.
+
+## apps/estoque — app com MongoDB, build no cluster e dados que sobrevivem
+
+Estoque de peças com **dados fictícios**, gravado no replica set MongoDB de 3 VMs.
+A página mostra de qual pod e nó veio a resposta, em qual arquitetura, e qual membro do
+MongoDB é o primário. Dá para somar, subtrair, digitar quantidade (duplo clique), criar
+e remover itens.
+
+    apps/estoque/*.yaml        manifestos que o ArgoCD aplica
+    apps/estoque/src/          código Node.js — o BuildConfig constrói no cluster (S2I)
+    application-estoque.yaml   o CR Application
+
+### O Secret não vai para o Git
+
+O app lê `MONGODB_URI` do Secret `estoque-mongodb`, criado à mão depois que o ArgoCD
+cria o namespace. Recursos criados fora do Git não têm a anotação de tracking, então o
+`prune` do ArgoCD não os apaga.
+
+```bash
+oc create secret generic estoque-mongodb -n estoque-demo \
+  --from-literal=MONGODB_URI='mongodb://<usuario>:<senha>@<host1>,<host2>,<host3>/estoque?replicaSet=<rs>&authSource=estoque'
+oc rollout restart deploy/estoque -n estoque-demo
+```
+
+Sem o Secret, a página sobe e diz o que falta — não fica em `CreateContainerConfigError`.
+
+### O que demonstrar
+
+| Ação | O que prova |
+|---|---|
+| F5 várias vezes | o pod muda, o dado não |
+| `+` / `−` e F5 | a gravação está no banco, não no navegador |
+| `oc delete pod -l app=estoque -n estoque-demo` | pod novo, mesmo dado |
+| migrar uma VM do replica set | o app segue gravando; nada se perde |
+| mudar `APP_VERSAO` e `APP_COR` no `deployment.yaml`, push | o ArgoCD aplica sozinho: versão e cor novas, mesmos dados |
+| `oc scale deploy/estoque --replicas=5 -n estoque-demo` | o `selfHeal` volta para 2 — o Git manda |
+
+### Build
+
+O `BuildConfig` roda uma vez quando é criado. Mudou o código em `src/`? Faça push e:
+
+```bash
+oc start-build estoque -n estoque-demo --follow
+oc rollout restart deploy/estoque -n estoque-demo
+```
+
+O S2I roda `npm install`, então o build precisa de saída para `registry.npmjs.org`.
+A imagem já construída fica no registry interno e não depende mais de internet.
