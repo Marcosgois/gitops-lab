@@ -1,0 +1,11 @@
+# Build fora do cluster (ex.: imagem x86 para um cluster sem saída para a internet).
+#   podman build --platform linux/amd64 -t estoque:x86 .
+# No cluster s390x o BuildConfig usa S2I e ignora este arquivo.
+FROM registry.access.redhat.com/ubi9/nodejs-20:latest
+COPY --chown=1001:0 package.json ./
+RUN npm install --omit=dev --no-audit --no-fund
+COPY --chown=1001:0 server.js ./
+COPY --chown=1001:0 public ./public
+ENV PORT=8080
+EXPOSE 8080
+CMD ["node", "server.js"]

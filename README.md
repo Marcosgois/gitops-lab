@@ -143,3 +143,25 @@ oc rollout restart deploy/estoque -n demos
 
 O S2I roda `npm install`, então o build precisa de saída para `registry.npmjs.org`.
 A imagem já construída fica no registry interno e não depende mais de internet.
+
+## apps/estoque-x86 — o mesmo front em x86, no mesmo banco
+
+O mesmo código e os mesmos manifestos de `apps/estoque`, no cluster x86 (`fusion`),
+namespace `estoque-x86`, gravando no **mesmo** MongoDB das VMs s390x. Grave pelo x86,
+dê F5 no s390x: o dado está lá, com o pod x86 como autor da alteração.
+
+- **Imagem**: o cluster x86 do lab está sem saída para a internet, então a imagem amd64
+  é construída fora dele com o `apps/estoque/src/Containerfile` e enviada ao registry
+  interno do cluster:
+
+  ```bash
+  podman build --platform linux/amd64 -t localhost/estoque:x86 apps/estoque/src
+  oc registry login --registry=<rota-do-registry> --to=auth.json
+  podman push --authfile auth.json localhost/estoque:x86 <rota-do-registry>/estoque-x86/estoque:latest
+  ```
+
+- **ArgoCD**: quem publica no x86 é o ArgoCD do cluster s390x (`application-estoque-x86.yaml`,
+  destino `name: fusion`). O cluster x86 é cadastrado nele com uma ServiceAccount que só
+  administra o namespace `estoque-x86`. `APP_VERSAO` e `APP_COR` vêm da base: **um push
+  muda as duas arquiteturas**.
+- **Secret**: `estoque-mongodb` também existe à mão em `estoque-x86`, fora do Git.

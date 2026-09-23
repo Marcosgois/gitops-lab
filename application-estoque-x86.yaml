@@ -1,0 +1,22 @@
+# O ArgoCD do cluster s390x (lone) publicando o mesmo app no cluster x86 (fusion).
+# Pré-requisito: o cluster "fusion" cadastrado no ArgoCD do lone, com acesso só ao
+# namespace estoque-x86 (ver README, seção apps/estoque-x86).
+#   oc apply -f application-estoque-x86.yaml      (no lone)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: estoque-x86
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Marcosgois/gitops-lab.git
+    targetRevision: main
+    path: apps/estoque-x86
+  destination:
+    name: fusion
+    namespace: estoque-x86
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

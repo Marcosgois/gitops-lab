@@ -1,0 +1,29 @@
+# O MESMO app de apps/estoque, no cluster x86 (fusion), gravando no MESMO MongoDB.
+# Muda só o necessário:
+#   - namespace estoque-x86
+#   - sem BuildConfig: a imagem amd64 é construída com o Containerfile de
+#     apps/estoque/src e enviada ao registry interno do cluster x86
+#   - sem a seta para as VMs (elas moram no cluster s390x)
+# APP_VERSAO e APP_COR vêm da base: um push muda as duas arquiteturas.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: estoque-x86
+resources:
+- ../estoque
+patches:
+- patch: |-
+    $patch: delete
+    apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: estoque
+      namespace: demos
+- target:
+    kind: Deployment
+    name: estoque
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/image
+      value: image-registry.openshift-image-registry.svc:5000/estoque-x86/estoque:latest
+    - op: remove
+      path: /metadata/annotations/app.openshift.io~1connects-to
