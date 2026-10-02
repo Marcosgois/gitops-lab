@@ -62,7 +62,9 @@ pg-ha-demo/
 │   ├── 01-criar-vms.sh           cria pg-lab-1/2/3 da imagem gold databases-gold
 │   ├── 02-configurar-replicacao.sh  1 primário + 2 standbys, sync em quórum
 │   ├── 03-deploy-painel.sh       Secret + Application do Argo; espera o build e o rollout
-│   └── 04-reintegrar-no.sh       reconstrói um nó como standby depois de um failover
+│   ├── 04-reintegrar-no.sh       reconstrói um nó como standby à mão (reclona inteiro)
+│   ├── 05-instalar-autorejoin.sh instala o pg-autorejoin nas 3 VMs
+│   └── pg-autorejoin.sh          serviço da VM: antigo primário volta sozinho ao pool (pg_rewind)
 └── test/                      ambiente local de teste (Podman)
     ├── local-up.sh / local-down.sh   sobe/derruba 3 PostgreSQL com replicação
     ├── run-app-local.sh              roda o painel contra eles (http://localhost:8080)
@@ -112,6 +114,7 @@ DRY_RUN=1 ./lab/01-criar-vms.sh               # confira os YAMLs gerados
 ./lab/01-criar-vms.sh                         # cria as 3 VMs e espera o SSH
 ./lab/02-configurar-replicacao.sh             # replicação; termina mostrando pg-lab-2/3 em "quorum"
 ./lab/03-deploy-painel.sh                     # Secret + Application do Argo; imprime a URL do painel
+./lab/05-instalar-autorejoin.sh               # antigo primário volta sozinho ao pool
 ```
 
 O painel é gerenciado pelo **ArgoCD** (`application-pg-ha-demo.yaml` na raiz do repositório, mesmo
@@ -131,7 +134,9 @@ crie os Host Overrides no OPNsense (a mesma pendência do Mongo).
    há…", um standby é promovido, o TPS volta. A tabela de eventos registra o **tempo de recuperação**
    e as **perdidas** — em síncrono, **0**.
 3. **Retomar VM**: o antigo primário volta com timeline velha — o painel o marca **primário obsoleto**
-   e mostra o aviso de split-brain. Reconstrua-o com `./lab/04-reintegrar-no.sh pg-lab-1 <IP do novo primário>`.
+   por alguns segundos e, sozinho, ele **volta ao pool como standby** (~10 s): o `pg-autorejoin` da VM
+   roda `pg_rewind` contra o novo primário, como o MongoDB faz no rollback. Em assíncrono, o que só
+   ele tinha (as **perdidas**) é descartado nesse momento.
 4. Repita em modo **assíncrona** e compare: TPS maior, e perdas **se** houver atraso na réplica.
 5. *(cenário de partição)* pause os dois standbys, deixe o primário gravar, pause o
    primário e retome os standbys: em assíncrono, o que foi gravado na partição **se perde**; em
@@ -206,11 +211,12 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 
 ## Limitações
 
-- **O antigo primário não volta sozinho para o pool.** Depois do failover ele está numa timeline
-  mais antiga e pode ter transações que o novo primário não tem; o PostgreSQL não se reintegra por
-  conta própria, de propósito. O painel o marca **obsoleto** e a aplicação o ignora até rodar
-  `./lab/04-reintegrar-no.sh`. Reintegração automática (com `pg_rewind`) é o que o **Patroni** faz.
-
+- **O retorno ao pool depende do `pg-autorejoin`** (`lab/05-instalar-autorejoin.sh`). O PostgreSQL,
+  sozinho, não reintegra o antigo primário — de propósito, porque ele pode ter transações que o novo
+  primário não tem. O serviço só age quando o nó local é primário **e** um par responde como
+  primário de timeline maior; com o PostgreSQL parado não faz nada. Sem ele (ou desligado com
+  `systemctl disable --now pg-autorejoin`), use `./lab/04-reintegrar-no.sh`. Em produção, quem faz
+  isso (e a eleição, no lugar do failover assistido do painel) é o **Patroni**.
 - O gerador de carga e a contagem de perdas ficam **em memória**: uma réplica só, e reiniciar o pod zera.
 - A verificação de perdas roda 1,5 s depois de cada recuperação e ao parar a carga, no primário atual.
 - O RTO inclui o tempo que o **app** leva para notar a falha (`QUERY_TIMEOUT_MS`).
