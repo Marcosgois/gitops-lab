@@ -77,7 +77,8 @@ pg-ha-demo/
 │   ├── 04-reintegrar-no.sh       reconstrói um nó como standby à mão (reclona inteiro)
 │   ├── 05-instalar-autorejoin.sh instala o pg-autorejoin (só SEM Patroni; desligado pelo 06)
 │   ├── pg-autorejoin.sh          serviço da VM: antigo primário volta sozinho ao pool (pg_rewind)
-│   └── 06-instalar-patroni.sh    etcd + Patroni nas 3 VMs; adota o cluster existente
+│   ├── 06-instalar-patroni.sh    etcd + Patroni nas 3 VMs; adota o cluster existente
+│   └── 07-remover-patroni.sh     volta ao modo sem Patroni (o 06 e o 07 alternam os modos)
 └── test/                      ambiente local de teste (Podman)
     ├── local-up.sh / local-down.sh   sobe/derruba 3 PostgreSQL com replicação
     ├── run-app-local.sh              roda o painel contra eles (http://localhost:8080)
@@ -109,8 +110,9 @@ pg-ha-demo/
      Ver o cluster: `sudo -u postgres /opt/patroni/bin/patronictl -c /etc/patroni/patroni.yml list`.
   2. **Failover assistido do painel** (`AUTO_PROMOTE=1`): sem primário por ~4 s, promove o standby com
      maior LSN (`pg_promote()`) e reaponta o outro. Mais rápido, mas é plano B de laboratório — **não é
-     produto de HA**. Só **sem** Patroni (os dois juntos disputariam a promoção), junto com o
-     `pg-autorejoin` (`05-…sh`) para o antigo primário voltar ao pool.
+     produto de HA**. Junto com o `pg-autorejoin` (`05-…sh`) para o antigo primário voltar ao pool.
+  O `AUTO_PROMOTE` fica `1` no Git: o painel **suspende o failover dele sozinho** enquanto o Patroni
+  responder na `:8008` de alguma VM, e o religa ~60 s depois que ele sai — os dois nunca disputam.
 - Usuários: `demo` (app; recebe `pg_monitor`, `EXECUTE` em `pg_promote`/`pg_reload_conf` **no banco
   `demo`**, e `ALTER SYSTEM` só em `primary_conninfo`) e `replicator` (só replicação). Nada de
   superusuário pela rede.
@@ -141,6 +143,19 @@ molde do `estoque`). Para publicar código novo: commit + push, depois
 ```bash
 oc start-build pg-ha-demo -n demos --follow && oc rollout restart deploy/pg-ha-demo -n demos
 ```
+
+### Alternar entre Patroni e o modo sem Patroni
+
+```bash
+./lab/07-remover-patroni.sh     # Patroni → normal (failover do painel + pg-autorejoin), ~2 min
+./lab/06-instalar-patroni.sh    # normal → Patroni, ~2 min
+```
+
+Testado nos dois sentidos em 02/10/2026. Pare a carga e retome VMs pausadas antes (os dois exigem as 3
+VMs de pé). O `07`: switchover para o `pg-lab-1`, para Patroni e etcd (apaga os dados do etcd, para o
+`06` formar um cluster limpo), devolve o `postgresql.conf` original, religa o `postgresql.service`,
+apaga os slots de replicação do Patroni (reteriam WAL até encher o disco) e roda o `02` e o `05`.
+Ficam instalados, inertes: binários do etcd, `/opt/patroni` e `/etc/patroni`.
 
 Nomes no DNS (`pg-lab-1.lone.sp1.tdsnxcoe.com`) **não existem**: o painel usa IP. Se quiser nomes,
 crie os Host Overrides no OPNsense (a mesma pendência do Mongo).
@@ -238,7 +253,7 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 | `PG_NAMES` | `pg-lab-1,pg-lab-2,pg-lab-3` | nomes (= `application_name` e nome da VM) |
 | `PG_USER` / `PG_DB` / `PG_PASSWORD` | `demo` / `demo` / — | credencial do app (a senha vem do Secret) |
 | `PG_REPL_PASSWORD` | — | usada só no failover assistido |
-| `AUTO_PROMOTE` | `0` (no Deployment: `0`, o Patroni elege) | failover assistido do painel — `1` só sem Patroni |
+| `AUTO_PROMOTE` | `0` (no Deployment: `1`) | failover assistido do painel — suspenso sozinho enquanto o Patroni responde |
 | `PROMOTE_AFTER_MS` | `4000` | quanto esperar sem primário antes de promover |
 | `QUERY_TIMEOUT_MS` / `CONNECT_TIMEOUT_MS` | `1500` / `1000` | quanto o app espera antes de dar a falha por detectada |
 | `VM_NAMESPACE` | `demos` | onde estão as VMs (botões de queda) |
@@ -247,10 +262,10 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 
 ## Limitações
 
-- **Voltar ao modo sem Patroni não está automatizado.** Seria: parar e desabilitar `patroni` e `etcd`
-  nas 3 VMs, devolver ao `postgresql.service` (o Patroni renomeou o `postgresql.conf` para
-  `postgresql.base.conf`), refazer a replicação (`02-…sh`), religar o `pg-autorejoin` (`05-…sh`) e pôr
-  `AUTO_PROMOTE=1`.
+- **Com Patroni, pausar 2 VMs ao mesmo tempo para a eleição**: o etcd precisa de 2 das 3 para ter
+  quórum. O painel avisa ("só 1 das 3 VMs responde…"). Na demo, retome uma antes de pausar outra.
+- **Com Patroni, retomar a VM antes de ~20 s mantém o mesmo primário** (o cadeado ainda não expirou):
+  o painel mostra a contagem regressiva até a troca.
 - **etcd sem TLS** e Patroni com a API REST aberta na rede do lab — só laboratório.
 - O gerador de carga e a contagem de perdas ficam **em memória**: uma réplica só, e reiniciar o pod zera.
 - A verificação de perdas roda 1,5 s depois de cada recuperação e ao parar a carga, no primário atual.
