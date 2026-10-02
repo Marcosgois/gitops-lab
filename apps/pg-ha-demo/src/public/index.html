@@ -300,7 +300,9 @@ function render(s) {
   if (!s.hasPassword) b.push(['warn', 'PG_PASSWORD não está definido: o app não vai autenticar nos bancos.']);
   if (s.splitBrain) b.push(['bad', 'Mais de um primário ativo (split-brain). O de timeline antiga está obsoleto e precisa ser reconstruído com pg_rewind antes de voltar ao cluster.']);
   if (s.nodes.every((n) => !n.up)) b.push(['bad', 'Nenhum nó respondeu. Confira a VPN do laboratório e os IPs.']);
-  if (s.outage && s.patroni) b.push(['warn', `Primário sem responder. O Patroni só troca de primário quando o cadeado do líder expira no etcd (ttl ${s.patroni.ttl} s) — ${patroniCountdown(s)}. Se a VM voltar antes, o mesmo primário continua.`]);
+  const vivos = s.nodes.filter((n) => n.up).length;
+  if (s.patroni && vivos < 2) b.push(['bad', `Só ${vivos} das 3 VMs responde: o etcd não tem quórum (precisa de 2) e o Patroni não elege nenhum primário — é a proteção contra dois primários. Retome uma VM.`]);
+  else if (s.outage && s.patroni) b.push(['warn', `Primário sem responder. O Patroni só troca de primário quando o cadeado do líder expira no etcd (ttl ${s.patroni.ttl} s) — ${patroniCountdown(s)}. Se a VM voltar antes, o mesmo primário continua.`]);
   $('banners').replaceChildren(...b.map(([k, m]) => { const d = document.createElement('div'); d.className = 'banner ' + k; d.textContent = m; return d; }));
 
   // nós
