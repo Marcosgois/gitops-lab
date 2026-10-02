@@ -1,0 +1,21 @@
+# Application do painel pg-ha-demo (PostgreSQL com 3 réplicas). Como as outras, fica FORA da
+# pasta do app — o ArgoCD não gerencia a si mesmo.
+#   oc apply -f application-pg-ha-demo.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pg-ha-demo
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Marcosgois/gitops-lab.git
+    targetRevision: main
+    path: apps/pg-ha-demo/deploy     # só os manifestos; src/ é do build
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demos                 # o mesmo das VMs pg-lab-*: a Topologia liga os dois
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

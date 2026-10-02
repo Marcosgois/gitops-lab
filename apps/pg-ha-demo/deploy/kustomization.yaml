@@ -1,0 +1,9 @@
+# O que o ArgoCD aplica (Application pg-ha-demo, na raiz do repositório).
+# Ficam FORA do Git: o Secret pg-ha-demo (senhas, criado pelo lab/03-deploy-painel.sh) e as
+# VMs pg-lab-1/2/3 (criadas pelo lab/01-criar-vms.sh), como o Mongo do estoque.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- 00-rbac.yaml
+- 10-build.yaml
+- 20-app.yaml

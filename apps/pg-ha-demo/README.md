@@ -52,15 +52,16 @@ pg-ha-demo/
 │   ├── server.js              gerador de carga, medição, monitor, failover assistido, API
 │   ├── public/index.html      o front (TPS, perdas, RTO, nós, histórico)
 │   └── package.json           única dependência: pg
-├── deploy/                    manifestos do painel no OpenShift
+├── deploy/                    manifestos do painel — aplicados pelo ArgoCD (Application pg-ha-demo)
+│   ├── kustomization.yaml     o que o Argo aplica (Secret e VMs ficam fora do Git)
 │   ├── 00-rbac.yaml           ServiceAccount + permissão de pausar/retomar só as VMs pg-lab-*
-│   ├── 10-build.yaml          ImageStream + BuildConfig binário (S2I Node.js 20)
+│   ├── 10-build.yaml          ImageStream + BuildConfig a partir do Git (S2I Node.js 20)
 │   └── 20-app.yaml            Deployment (1 réplica) + Service + Route
 ├── lab/                       passo a passo do laboratório (numerados)
 │   ├── 00-gerar-credenciais.sh   senhas aleatórias em CREDENCIAIS-pg-lab.txt
 │   ├── 01-criar-vms.sh           cria pg-lab-1/2/3 da imagem gold databases-gold
 │   ├── 02-configurar-replicacao.sh  1 primário + 2 standbys, sync em quórum
-│   ├── 03-deploy-painel.sh       build + deploy do painel
+│   ├── 03-deploy-painel.sh       Secret + Application do Argo; espera o build e o rollout
 │   └── 04-reintegrar-no.sh       reconstrói um nó como standby depois de um failover
 └── test/                      ambiente local de teste (Podman)
     ├── local-up.sh / local-down.sh   sobe/derruba 3 PostgreSQL com replicação
@@ -110,7 +111,14 @@ cd gitops-lab/apps/pg-ha-demo
 DRY_RUN=1 ./lab/01-criar-vms.sh               # confira os YAMLs gerados
 ./lab/01-criar-vms.sh                         # cria as 3 VMs e espera o SSH
 ./lab/02-configurar-replicacao.sh             # replicação; termina mostrando pg-lab-2/3 em "quorum"
-./lab/03-deploy-painel.sh                     # build + deploy; imprime a URL do painel
+./lab/03-deploy-painel.sh                     # Secret + Application do Argo; imprime a URL do painel
+```
+
+O painel é gerenciado pelo **ArgoCD** (`application-pg-ha-demo.yaml` na raiz do repositório, mesmo
+molde do `estoque`). Para publicar código novo: commit + push, depois
+
+```bash
+oc start-build pg-ha-demo -n demos --follow && oc rollout restart deploy/pg-ha-demo -n demos
 ```
 
 Nomes no DNS (`pg-lab-1.lone.sp1.tdsnxcoe.com`) **não existem**: o painel usa IP. Se quiser nomes,
@@ -139,6 +147,10 @@ Encontradas na primeira execução no lab (02/10):
   servidor; o app desistia em 1,5 s, abria outra conexão, e em segundos estourava o
   `max_connections` (`remaining connection slots are reserved…`) — nem o monitor entrava mais.
   Corrigido no app (espera o quórum) + `wal_sender_timeout` de 5 s.
+- **Primário antigo de pé bloqueava o failover**: com o `pg-lab-3` antigo ligado (timeline 11) e o
+  primário atual (`pg-lab-2`, timeline 12) pausado, o painel via "um primário" e não promovia o
+  standby — 35 s parado até o `pg-lab-2` voltar. Agora "obsoleto" é comparado com a **maior timeline
+  já vista**, não só com as visíveis.
 - O `02-…sh` lia o `pg_hba.conf` sem `sudo` (`Permission denied`) e duplicava a linha da rede.
 - No `e2e.mjs`, rodar a queda do primário e a partição em sequência deixava o primário do primeiro
   cenário pausado — a partição começava com um nó a menos. Agora `split` roda só a partição.
@@ -191,6 +203,11 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 | `CHAOS_CMD` | — | só testes locais, ex.: `podman {action} {name}` |
 
 ## Limitações
+
+- **O antigo primário não volta sozinho para o pool.** Depois do failover ele está numa timeline
+  mais antiga e pode ter transações que o novo primário não tem; o PostgreSQL não se reintegra por
+  conta própria, de propósito. O painel o marca **obsoleto** e a aplicação o ignora até rodar
+  `./lab/04-reintegrar-no.sh`. Reintegração automática (com `pg_rewind`) é o que o **Patroni** faz.
 
 - O gerador de carga e a contagem de perdas ficam **em memória**: uma réplica só, e reiniciar o pod zera.
 - A verificação de perdas roda 1,5 s depois de cada recuperação e ao parar a carga, no primário atual.

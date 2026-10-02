@@ -8,7 +8,6 @@ metadata:
     app.openshift.io/runtime: nodejs
   annotations:
     app.openshift.io/connects-to: '[{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"pg-lab-1"},{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"pg-lab-2"},{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"pg-lab-3"}]'
-    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"pg-ha-demo:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"app\")].image"}]'
 spec:
   # UMA réplica só: o gerador de carga e as contagens de perda vivem em memória.
   replicas: 1

@@ -1,5 +1,7 @@
-# Build binário no próprio cluster: `oc start-build pg-ha-demo --from-dir=src --follow`.
-# S2I do Node.js 20 (UBI9) gera a imagem s390x no registry interno — mesmo caminho do app `estoque`.
+# O build roda DENTRO do cluster: clona apps/pg-ha-demo/src do Git, roda o S2I do Node.js 20
+# (UBI9) e gera a imagem s390x no registry interno — mesmo caminho do app `estoque`.
+# Código novo: commit + push, depois `oc start-build pg-ha-demo -n demos` e
+# `oc rollout restart deploy/pg-ha-demo -n demos`.
 apiVersion: image.openshift.io/v1
 kind: ImageStream
 metadata:
@@ -14,7 +16,11 @@ metadata:
 spec:
   runPolicy: Serial
   source:
-    type: Binary
+    type: Git
+    git:
+      uri: https://github.com/Marcosgois/gitops-lab.git
+      ref: main
+    contextDir: apps/pg-ha-demo/src
   strategy:
     type: Source
     sourceStrategy:
@@ -26,3 +32,5 @@ spec:
     to:
       kind: ImageStreamTag
       name: pg-ha-demo:latest
+  triggers:
+  - type: ConfigChange

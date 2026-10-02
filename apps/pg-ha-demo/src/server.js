@@ -319,8 +319,12 @@ async function probe(n) {
 async function monitorTick() {
   await Promise.all(nodes.map(probe));
   const prims = nodes.filter((n) => n.role === 'primary');
-  const best = prims.slice().sort((a, b) => b.tl - a.tl)[0];
-  for (const n of nodes) { n.stale = n.role === 'primary' && best && n.tl < best.tl; }
+  // Obsoleto = timeline menor que a MAIOR já vista, não só a maior visível agora: se o primário
+  // atual cair enquanto um antigo está de pé, o antigo não pode passar por primário válido
+  // (bloquearia o failover e a aplicação o recusaria de qualquer jeito).
+  const maxTl = Math.max(state.maxTl || 0, ...prims.map((n) => n.tl || 0));
+  for (const n of nodes) { n.stale = n.role === 'primary' && n.tl < maxTl; }
+  const best = prims.filter((n) => !n.stale).sort((a, b) => b.tl - a.tl)[0];
   if (best) {
     for (const n of nodes) {
       if (n.role !== 'standby') continue;
