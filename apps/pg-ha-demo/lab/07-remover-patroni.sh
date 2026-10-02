@@ -61,6 +61,6 @@ rsh "${IPS[0]}" "sudo -u postgres psql -XAtqc \"select pg_drop_replication_slot(
 echo "  slots restantes: $(rsh "${IPS[0]}" "sudo -u postgres psql -XAtqc 'select count(*) from pg_replication_slots'")"
 
 echo "== 5/5 replicação (02) e pg-autorejoin (05)"
-./lab/02-configurar-replicacao.sh
+SEM_PROXIMO=1 ./lab/02-configurar-replicacao.sh
 ./lab/05-instalar-autorejoin.sh
 echo "pronto: modo sem Patroni. O painel religa o failover dele em ~60 s. Para voltar ao Patroni: ./lab/06-instalar-patroni.sh"

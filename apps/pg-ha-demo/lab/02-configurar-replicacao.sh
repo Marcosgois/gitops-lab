@@ -91,4 +91,4 @@ done
 sleep 2
 rsh "${IPS[0]}" "sudo -u postgres psql -X -c \"SELECT application_name, state, sync_state FROM pg_stat_replication;\""
 echo "pronto. Esperado: pg-lab-2 e pg-lab-3 em 'streaming' / 'quorum'."
-echo "Próximo: ./lab/03-deploy-painel.sh"
+[ -n "${SEM_PROXIMO:-}" ] || echo "Próximo: ./lab/03-deploy-painel.sh"
