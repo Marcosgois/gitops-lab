@@ -137,14 +137,17 @@ function addAck(w, seq) {
   if (last && last[1] + 1 === seq) last[1] = seq; else w.ranges.push([seq, seq]);
 }
 
-function onAck(w, seq, latMs) {
+function onAck(w, seq, latMs, sentAt) {
   addAck(w, seq);
   state.acked++;
   state.lastAckAt = now();
   const b = bucket(Math.floor(state.lastAckAt / 1000));
   b.n++;
   if (b.lat.length < 4000) b.lat.push(latMs);
-  if (state.outage) recover();
+  // só fecha a queda uma gravação ENVIADA depois do primeiro erro: a resposta de um INSERT que
+  // já estava em voo quando o primário caiu não prova que o serviço voltou (abria eventos de 0 ms)
+  if (state.outage && sentAt >= state.outage.firstErrorAt) recover();
+  else if (state.outage) state.outage.startedAt = state.lastAckAt; // ainda é o "último antes da falha"
 }
 
 function onError(w, e) {
@@ -199,10 +202,11 @@ async function workerLoop(w, runId) {
       }
       state.quorumWaitNoted = false;
       const seq = w.next;
+      const sentAt = now();
       const t0 = process.hrtime.bigint();
       await w.client.query('INSERT INTO ledger(run, worker, seq, payload) VALUES ($1, $2, $3, $4)',
         [runId, w.id, seq, PAYLOAD]);
-      onAck(w, seq, Number(process.hrtime.bigint() - t0) / 1e6);
+      onAck(w, seq, Number(process.hrtime.bigint() - t0) / 1e6, sentAt);
       w.next = seq + 1;
     } catch (e) {
       onError(w, e);
