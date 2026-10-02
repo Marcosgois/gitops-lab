@@ -151,6 +151,8 @@ Encontradas na primeira execução no lab (02/10):
   primário atual (`pg-lab-2`, timeline 12) pausado, o painel via "um primário" e não promovia o
   standby — 35 s parado até o `pg-lab-2` voltar. Agora "obsoleto" é comparado com a **maior timeline
   já vista**, não só com as visíveis.
+- **Reintegração lenta**: o `pg_basebackup` esperava o checkpoint espaçado padrão (até ~4,5 min).
+  Agora usa `-c fast` (checkpoint imediato).
 - O `02-…sh` lia o `pg_hba.conf` sem `sudo` (`Permission denied`) e duplicava a linha da rede.
 - No `e2e.mjs`, rodar a queda do primário e a partição em sequência deixava o primário do primeiro
   cenário pausado — a partição começava com um nó a menos. Agora `split` roda só a partição.

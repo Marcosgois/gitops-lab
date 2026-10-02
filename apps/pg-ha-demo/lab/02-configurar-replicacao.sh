@@ -69,7 +69,7 @@ for n in 1 2; do
   ip=${IPS[$n]}; nm=${NAMES[$n]}
   echo "== $((n + 1))/5 standby $nm ($ip) — pg_basebackup do primário"
   rsh "$ip" "sudo systemctl stop postgresql; sudo -u postgres bash -c 'rm -rf $PGD/*'"
-  rsh "$ip" "sudo -u postgres env PGPASSWORD='$PG_REPL_PASSWORD' pg_basebackup -h ${IPS[0]} -U replicator -D $PGD -R -X stream -P -d 'host=${IPS[0]} user=replicator application_name=$nm'"
+  rsh "$ip" "sudo -u postgres env PGPASSWORD='$PG_REPL_PASSWORD' pg_basebackup -c fast -h ${IPS[0]} -U replicator -D $PGD -R -X stream -P -d 'host=${IPS[0]} user=replicator application_name=$nm'"
   rsh "$ip" "sudo restorecon -R $PGD >/dev/null 2>&1 || true; sudo systemctl start postgresql"
 done
 

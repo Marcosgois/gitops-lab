@@ -25,7 +25,7 @@ read -r -p "Digite o nome do nó para confirmar: " ok
 [ "$ok" = "$NODE" ] || { echo "cancelado"; exit 1; }
 
 ssh "${SSH_OPTS[@]}" "cloud-user@$IP" "sudo systemctl stop postgresql; sudo -u postgres bash -c 'rm -rf $PGD/*'"
-ssh "${SSH_OPTS[@]}" "cloud-user@$IP" "sudo -u postgres env PGPASSWORD='$PG_REPL_PASSWORD' pg_basebackup -h $PRIMARY_IP -U replicator -D $PGD -R -X stream -P -d 'host=$PRIMARY_IP user=replicator application_name=$NODE'"
+ssh "${SSH_OPTS[@]}" "cloud-user@$IP" "sudo -u postgres env PGPASSWORD='$PG_REPL_PASSWORD' pg_basebackup -c fast -h $PRIMARY_IP -U replicator -D $PGD -R -X stream -P -d 'host=$PRIMARY_IP user=replicator application_name=$NODE'"
 ssh "${SSH_OPTS[@]}" "cloud-user@$IP" "sudo restorecon -R $PGD >/dev/null 2>&1 || true; sudo systemctl start postgresql"
 sleep 3
 ssh "${SSH_OPTS[@]}" "cloud-user@$PRIMARY_IP" "sudo -u postgres psql -X -c \"SELECT application_name, state, sync_state FROM pg_stat_replication;\""
