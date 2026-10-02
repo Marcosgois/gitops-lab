@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Passa o cluster pg-lab-1/2/3 para o Patroni, com etcd nas próprias 3 VMs.
 #
-# Depois disso quem elege o primário e reintegra o antigo é o Patroni: o painel fica com
-# AUTO_PROMOTE=0 (deploy/20-app.yaml) e o pg-autorejoin é desligado.
+# Depois disso quem elege o primário e reintegra o antigo é o Patroni: o painel suspende o failover
+# dele sozinho ao detectar o Patroni (API :8008) e o pg-autorejoin é desligado.
+# Para voltar ao modo sem Patroni: 07-remover-patroni.sh.
 #
 # O que muda na demo: com o etcd nas mesmas VMs, pausar 2 das 3 derruba o quórum do etcd e o
 # Patroni REBAIXA o primário isolado — ele para de gravar mesmo em assíncrono. É a proteção
@@ -182,4 +183,4 @@ for _ in $(seq 1 40); do
 done
 rsh "$PRIMARY" "sudo -u postgres /opt/patroni/bin/patronictl -c /etc/patroni/patroni.yml list"
 rsh "$PRIMARY" "sudo -u postgres psql -XAtqc 'show synchronous_standby_names'"
-echo "pronto. Painel: AUTO_PROMOTE=0 (deploy/20-app.yaml). Log: journalctl -u patroni -f"
+echo "pronto. O painel detecta o Patroni em ~10 s e suspende o failover dele. Log: journalctl -u patroni -f"

@@ -357,7 +357,8 @@ async function adminQuery(n, sql) {
 }
 
 async function promoterTick(best) {
-  if (!cfg.autoPromote) return;
+  // com o Patroni nas VMs quem elege é ele: os dois juntos disputariam a promoção
+  if (!cfg.autoPromote || state.patroni) return;
   if (best) { noPrimarySince = null; return; }
   if (!noPrimarySince) noPrimarySince = now();
   if (now() - noPrimarySince < cfg.promoteAfterMs || state.promoting) return;
@@ -441,7 +442,7 @@ function snapshot() {
   const prim = nodes.filter((n) => n.role === 'primary');
   return {
     now: t, running: state.running, runId: state.runId, mode: state.mode, workers: state.workerCount,
-    chaosAvailable, autoPromote: cfg.autoPromote, hasPassword: Boolean(cfg.password), patroni: state.patroni,
+    chaosAvailable, autoPromote: cfg.autoPromote && !state.patroni, hasPassword: Boolean(cfg.password), patroni: state.patroni,
     nodes: nodes.map((n) => ({
       name: n.name, role: n.role, up: n.up, lsn: n.lsn, tl: n.tl, lagBytes: n.lagBytes, syncState: n.syncState,
       paused: n.paused, stale: Boolean(n.stale), error: n.error, current: n.idx === state.currentPrimary,
@@ -522,18 +523,22 @@ async function patroniTick() {
       const r = await fetch(`http://${n.host}:${cfg.patroniPort}/config`, { signal: AbortSignal.timeout(1000) });
       if (!r.ok) continue;
       const c = await r.json();
-      if (!state.patroni) note(`Patroni detectado (ttl ${c.ttl} s): ele elege o primário`);
+      if (!state.patroni) note(`Patroni detectado (ttl ${c.ttl} s): ele elege o primário${cfg.autoPromote ? ' — failover do painel em espera' : ''}`);
       state.patroni = { ttl: c.ttl, loopWait: c.loop_wait, retryTimeout: c.retry_timeout, seenAt: now() };
       return;
     } catch (e) { /* nó fora ou sem Patroni */ }
   }
-  if (state.patroni && now() - state.patroni.seenAt > 60000) state.patroni = null;
+  if (state.patroni && now() - state.patroni.seenAt > 60000) {
+    state.patroni = null;
+    note(`Patroni não responde há 60 s${cfg.autoPromote ? ': failover do painel religado' : ''}`);
+  }
 }
 
 (async function loop() {
   for (;;) {
-    try { await monitorTick(); } catch (e) { console.error('monitor', e.message); }
+    // Patroni primeiro: o monitor (e o failover do painel) já precisa saber se ele está no comando
     try { await patroniTick(); } catch (e) { console.error('patroni', e.message); }
+    try { await monitorTick(); } catch (e) { console.error('monitor', e.message); }
     await sleep(1000);
   }
 }());

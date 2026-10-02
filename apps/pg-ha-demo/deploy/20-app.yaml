@@ -31,9 +31,9 @@ spec:
         - {name: PG_USER, value: "demo"}
         - {name: PG_DB, value: "demo"}
         - {name: VM_NAMESPACE, value: "demos"}
-        # Quem elege o primário é o Patroni (lab/06-instalar-patroni.sh). "1" = failover assistido
-        # do painel (plano B, só SEM Patroni — os dois juntos disputariam a promoção).
-        - {name: AUTO_PROMOTE, value: "0"}
+        # Failover assistido do painel. Fica "1": o painel o suspende sozinho enquanto o Patroni
+        # responder nas VMs (lab/06-instalar-patroni.sh) e o religa ~60 s depois que ele sai (07-…sh).
+        - {name: AUTO_PROMOTE, value: "1"}
         - name: PG_PASSWORD
           valueFrom: {secretKeyRef: {name: pg-ha-demo, key: PG_PASSWORD}}
         - name: PG_REPL_PASSWORD
