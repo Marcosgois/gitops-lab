@@ -1,0 +1,4 @@
+CREDENCIAIS-pg-lab.txt
+node_modules/
+test/.env.local
+test/init/

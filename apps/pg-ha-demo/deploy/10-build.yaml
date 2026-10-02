@@ -1,0 +1,28 @@
+# Build binário no próprio cluster: `oc start-build pg-ha-demo --from-dir=src --follow`.
+# S2I do Node.js 20 (UBI9) gera a imagem s390x no registry interno — mesmo caminho do app `estoque`.
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: pg-ha-demo
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: pg-ha-demo
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+spec:
+  runPolicy: Serial
+  source:
+    type: Binary
+  strategy:
+    type: Source
+    sourceStrategy:
+      from:
+        kind: ImageStreamTag
+        namespace: openshift
+        name: nodejs:20-ubi9
+  output:
+    to:
+      kind: ImageStreamTag
+      name: pg-ha-demo:latest

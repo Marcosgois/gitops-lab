@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PostgreSQL em HA — painel</title>
+<style>
+  :root{
+    --bg:#f4f4f4; --surface:#ffffff; --surface-2:#f0f2f5; --border:#dde1e6;
+    --ink:#161616; --ink-soft:#525252; --ink-faint:#6f6f6f;
+    --accent:#0f62fe; --accent-soft:#e5eeff;
+    --ok:#198038; --ok-soft:#defbe6; --bad:#da1e28; --bad-soft:#fff1f1; --warn:#8e6a00; --warn-soft:#fcf4d6;
+    --grid:#e0e0e0;
+    --f-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161616; --surface:#202124; --surface-2:#2a2c30; --border:#393939;
+      --ink:#f4f4f4; --ink-soft:#c6c6c6; --ink-faint:#8d8d8d;
+      --accent:#78a9ff; --accent-soft:#1c2a47;
+      --ok:#42be65; --ok-soft:#10301c; --bad:#ff8389; --bad-soft:#3a1618; --warn:#f1c21b; --warn-soft:#332a08;
+      --grid:#363636; color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#161616; --surface:#202124; --surface-2:#2a2c30; --border:#393939;
+    --ink:#f4f4f4; --ink-soft:#c6c6c6; --ink-faint:#8d8d8d;
+    --accent:#78a9ff; --accent-soft:#1c2a47;
+    --ok:#42be65; --ok-soft:#10301c; --bad:#ff8389; --bad-soft:#3a1618; --warn:#f1c21b; --warn-soft:#332a08;
+    --grid:#363636; color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-sans);padding-block:24px}
+  .wrap{max-width:1180px;margin:0 auto;padding-inline:20px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:24px;margin:0;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--ink-soft);margin-top:2px}
+  .mono{font-family:var(--f-mono)}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;border-radius:99px;background:var(--surface-2);border:1px solid var(--border);color:var(--ink-soft)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ink-faint)}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.warn{background:var(--warn)}
+
+  .banner{padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px;border:1px solid var(--border)}
+  .banner.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
+  .banner.warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px}
+  .controls .grp{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .controls .sep{width:1px;align-self:stretch;background:var(--border);margin-inline:4px}
+  button{font:inherit;cursor:pointer;border:1px solid var(--border);background:var(--surface-2);color:var(--ink);border-radius:6px;padding:7px 14px}
+  button:hover{border-color:var(--ink-faint)}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  label{color:var(--ink-soft);font-size:13px;display:flex;align-items:center;gap:6px}
+  input[type=number]{width:64px;font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--ink)}
+  .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  .seg button{border:0;border-radius:0;background:var(--surface)}
+  .seg button.on{background:var(--accent);color:#fff}
+
+  .tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
+  @media (max-width:900px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;min-width:0}
+  .tile .k{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.06em}
+  .tile .v{font-size:34px;font-weight:600;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums;font-family:var(--f-mono)}
+  .tile .s{font-size:12px;color:var(--ink-faint);margin-top:2px;min-height:18px}
+  .tile.bad{border-color:var(--bad);background:var(--bad-soft)} .tile.bad .v{color:var(--bad)}
+  .tile.ok .v{color:var(--ok)}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+  .card h2{font-size:13px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);font-weight:600}
+  canvas{width:100%;height:260px;display:block}
+
+  .nodes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:14px}
+  @media (max-width:760px){.nodes{grid-template-columns:1fr}}
+  .node{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;border-top:4px solid var(--ink-faint)}
+  .node.primary{border-top-color:var(--ok)} .node.standby{border-top-color:var(--accent)}
+  .node.down{border-top-color:var(--bad);background:var(--bad-soft)} .node.paused{border-top-color:var(--warn)}
+  .node .nm{font-weight:600;font-size:16px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .node .role{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--surface-2);border:1px solid var(--border)}
+  .node dl{margin:10px 0 0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+  .node dt{color:var(--ink-faint)} .node dd{margin:0;text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+
+  .tbl{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+  th{color:var(--ink-faint);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+  .tag{padding:2px 8px;border-radius:99px;font-size:12px}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.bad{background:var(--bad-soft);color:var(--bad)} .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .empty{color:var(--ink-faint);padding:14px 4px}
+  .notes{font-family:var(--f-mono);font-size:12px;color:var(--ink-soft);max-height:150px;overflow:auto}
+  .notes div{padding:2px 0}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--ink-soft);margin-top:6px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  footer{color:var(--ink-faint);font-size:12px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>PostgreSQL em HA no LinuxONE</h1>
+      <div class="sub">3 réplicas em VMs no OpenShift Virtualization · carga contínua, perdas e tempo de recuperação</div>
+    </div>
+    <span class="pill" id="runpill"><span class="dot" id="rundot"></span><span id="runtxt">carga parada</span></span>
+  </header>
+
+  <div id="banners"></div>
+
+  <div class="controls">
+    <div class="grp">
+      <button class="primary" id="btnLoad">Iniciar carga</button>
+      <label>workers <input type="number" id="workers" min="1" max="64" value="8"></label>
+    </div>
+    <div class="sep"></div>
+    <div class="grp">
+      <span style="color:var(--ink-soft);font-size:13px">Confirmação</span>
+      <div class="seg" role="group" aria-label="Modo de confirmação">
+        <button id="mSync" class="on" title="O COMMIT só confirma depois de gravado em pelo menos 1 standby (2 das 3 cópias)">Síncrona (quórum)</button>
+        <button id="mAsync" title="O COMMIT confirma assim que grava no primário; os standbys podem estar atrasados">Assíncrona</button>
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="grp">
+      <button class="danger" id="btnPause" title="Congela a VM do primário atual (equivale a uma queda sem aviso)">Pausar o primário</button>
+      <button id="btnResume" title="Retoma a VM que foi pausada">Retomar VM</button>
+    </div>
+    <div class="sep"></div>
+    <div class="grp">
+      <button id="btnVerify">Verificar perdas</button>
+      <button id="btnReset">Limpar</button>
+    </div>
+  </div>
+
+  <section class="tiles" aria-label="Indicadores">
+    <div class="tile" id="tTps"><div class="k">Transações por segundo</div><div class="v" id="vTps">—</div><div class="s" id="sTps">&nbsp;</div></div>
+    <div class="tile" id="tLat"><div class="k">Latência p95</div><div class="v" id="vLat">—</div><div class="s" id="sLat">&nbsp;</div></div>
+    <div class="tile" id="tAck"><div class="k">Confirmadas</div><div class="v" id="vAck">0</div><div class="s" id="sAck">&nbsp;</div></div>
+    <div class="tile" id="tLost"><div class="k">Perdidas</div><div class="v" id="vLost">0</div><div class="s" id="sLost">confirmadas e que sumiram</div></div>
+    <div class="tile" id="tRto"><div class="k">Recuperação (último)</div><div class="v" id="vRto">—</div><div class="s" id="sRto">&nbsp;</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Transações por segundo — últimos 3 minutos</h2>
+    <canvas id="chart" aria-label="Gráfico de transações por segundo"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>TPS (commits confirmados por segundo)</span>
+      <span><i style="background:var(--bad);opacity:.35"></i>Indisponibilidade (falhas de gravação)</span>
+    </div>
+  </section>
+
+  <section class="nodes" id="nodes" aria-label="Nós do cluster"></section>
+
+  <section class="card">
+    <h2>Falhas e recuperações</h2>
+    <div class="tbl"><table id="events"><thead><tr>
+      <th>Quando</th><th>Primário antes</th><th>Primário depois</th><th>Tempo de recuperação</th><th>Perdidas</th><th>Confirmação</th>
+    </tr></thead><tbody></tbody></table></div>
+    <div class="empty" id="noEvents">Nenhuma falha ainda. Inicie a carga e use <b>Pausar o primário</b>.</div>
+  </section>
+
+  <section class="card">
+    <h2>Registro</h2>
+    <div class="notes" id="notes"></div>
+  </section>
+
+  <footer>
+    Tempo de recuperação: do último commit confirmado antes da falha ao primeiro commit confirmado depois, medido pela aplicação.
+    Perda: transação que o banco confirmou e que não existe no primário atual.
+  </footer>
+</div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+let S = null;
+let mode = 'sync';
+
+async function api(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const fmtN = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR'));
+const fmtMs = (ms) => (ms == null ? '—' : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`);
+const fmtBytes = (b) => (b == null ? '—' : b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`);
+const fmtT = (t) => new Date(t).toLocaleTimeString('pt-BR');
+
+$('btnLoad').onclick = async () => {
+  try {
+    if (S && S.running) await api('/api/load', { action: 'stop' });
+    else await api('/api/load', { action: 'start', workers: Number($('workers').value), mode });
+  } catch (e) { alert(e.message); }
+};
+function setMode(m) {
+  mode = m;
+  $('mSync').classList.toggle('on', m === 'sync');
+  $('mAsync').classList.toggle('on', m === 'async');
+  api('/api/mode', { mode: m }).catch(() => {});
+}
+$('mSync').onclick = () => setMode('sync');
+$('mAsync').onclick = () => setMode('async');
+$('btnPause').onclick = async () => { try { await api('/api/chaos', { action: 'pause', target: 'primary' }); } catch (e) { alert(e.message); } };
+$('btnResume').onclick = async () => {
+  const p = S && S.nodes.find((n) => n.paused);
+  try { await api('/api/chaos', { action: 'resume', target: p ? p.name : 'primary' }); } catch (e) { alert(e.message); }
+};
+$('btnVerify').onclick = () => api('/api/verify').catch((e) => alert(e.message));
+$('btnReset').onclick = () => api('/api/reset').catch((e) => alert(e.message));
+
+// ---------------------------------------------------------------- gráfico
+function drawChart(series, running) {
+  const cv = $('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const col = (n) => css.getPropertyValue(n).trim();
+  const padL = 48, padR = 10, padT = 10, padB = 24;
+  const cw = w - padL - padR, ch = h - padT - padB;
+  const maxV = Math.max(10, ...series.map((s) => s.tps));
+  const nice = (v) => { const p = Math.pow(10, Math.floor(Math.log10(v))); const m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p; };
+  const yMax = nice(maxV * 1.1);
+  const x = (i) => padL + (i / (series.length - 1)) * cw;
+  const y = (v) => padT + ch - (v / yMax) * ch;
+  g.font = '11px ' + css.getPropertyValue('--f-mono');
+  g.fillStyle = col('--ink-faint'); g.strokeStyle = col('--grid'); g.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) {
+    const v = (yMax / 4) * k; const yy = y(v);
+    g.beginPath(); g.moveTo(padL, yy); g.lineTo(w - padR, yy); g.stroke();
+    g.textAlign = 'right'; g.fillText(fmtN(Math.round(v)), padL - 6, yy + 4);
+  }
+  g.textAlign = 'center';
+  [0, 60, 120, 179].forEach((i) => g.fillText(i === 179 ? 'agora' : `-${179 - i}s`, x(i), h - 6));
+  // faixas de indisponibilidade
+  g.fillStyle = col('--bad'); g.globalAlpha = 0.28;
+  series.forEach((s, i) => {
+    const down = s.errs > 0 || (running && s.tps === 0 && i > 2 && series.slice(Math.max(0, i - 6), i).some((q) => q.tps > 0));
+    if (down) g.fillRect(x(i) - cw / series.length / 2, padT, cw / series.length + 1, ch);
+  });
+  g.globalAlpha = 1;
+  // área + linha
+  const grad = g.createLinearGradient(0, padT, 0, padT + ch);
+  grad.addColorStop(0, col('--accent') + '66'); grad.addColorStop(1, col('--accent') + '05');
+  g.beginPath(); g.moveTo(x(0), y(0));
+  series.forEach((s, i) => g.lineTo(x(i), y(s.tps)));
+  g.lineTo(x(series.length - 1), y(0)); g.closePath(); g.fillStyle = grad; g.fill();
+  g.beginPath();
+  series.forEach((s, i) => (i ? g.lineTo(x(i), y(s.tps)) : g.moveTo(x(i), y(s.tps))));
+  g.strokeStyle = col('--accent'); g.lineWidth = 2; g.stroke();
+}
+
+// ---------------------------------------------------------------- render
+function render(s) {
+  S = s;
+  $('rundot').className = 'dot ' + (s.running ? 'ok' : '');
+  $('runtxt').textContent = s.running ? `carga em execução · ${s.workers} workers · ${s.mode === 'sync' ? 'síncrona' : 'assíncrona'}` : 'carga parada';
+  $('btnLoad').textContent = s.running ? 'Parar carga' : 'Iniciar carga';
+  $('btnLoad').className = s.running ? 'danger' : 'primary';
+  $('workers').disabled = s.running;
+  mode = s.mode; $('mSync').classList.toggle('on', mode === 'sync'); $('mAsync').classList.toggle('on', mode === 'async');
+  $('btnPause').disabled = !s.chaosAvailable; $('btnResume').disabled = !s.chaosAvailable;
+  if (!s.chaosAvailable) { $('btnPause').title = 'Sem acesso para pausar a VM: precisa da ServiceAccount no cluster (ver README)'; }
+
+  const t = s.totals;
+  $('vTps').textContent = s.running ? fmtN(t.tpsNow) : '—';
+  $('sTps').textContent = s.running ? `${s.workers} workers` : 'inicie a carga';
+  $('vLat').textContent = t.p95 == null ? '—' : fmtMs(t.p95);
+  $('sLat').textContent = t.p50 == null ? ' ' : `mediana ${fmtMs(t.p50)}`;
+  $('vAck').textContent = fmtN(t.acked);
+  $('sAck').textContent = t.errors ? `${fmtN(t.errors)} erros de gravação` : ' ';
+  $('vLost').textContent = fmtN(t.lost);
+  const lostTile = $('tLost');
+  lostTile.className = 'tile ' + (t.lost > 0 ? 'bad' : t.verifiedAt ? 'ok' : '');
+  $('sLost').textContent = t.verifying ? 'verificando…' : t.verifiedAt ? `verificado às ${fmtT(t.verifiedAt)}` : 'confirmadas e que sumiram';
+  const last = s.events[0];
+  if (s.outage) {
+    $('vRto').textContent = fmtMs(s.outage.elapsedMs); $('sRto').textContent = 'sem gravar há…'; $('tRto').className = 'tile bad';
+  } else if (last) {
+    $('vRto').textContent = fmtMs(last.rtoMs); $('sRto').textContent = `${last.oldPrimary || '?'} → ${last.newPrimary || '?'}`; $('tRto').className = 'tile ok';
+  } else { $('vRto').textContent = '—'; $('sRto').textContent = 'nenhuma falha ainda'; $('tRto').className = 'tile'; }
+
+  // banners
+  const b = [];
+  if (!s.hasPassword) b.push(['warn', 'PG_PASSWORD não está definido: o app não vai autenticar nos bancos.']);
+  if (s.splitBrain) b.push(['bad', 'Mais de um primário ativo (split-brain). O de timeline antiga está obsoleto e precisa ser reconstruído com pg_rewind antes de voltar ao cluster.']);
+  if (s.nodes.every((n) => !n.up)) b.push(['bad', 'Nenhum nó respondeu. Confira a VPN do laboratório e os IPs.']);
+  $('banners').replaceChildren(...b.map(([k, m]) => { const d = document.createElement('div'); d.className = 'banner ' + k; d.textContent = m; return d; }));
+
+  // nós
+  const nodesEl = $('nodes');
+  nodesEl.replaceChildren(...s.nodes.map((n) => {
+    const d = document.createElement('div');
+    const cls = n.paused ? 'paused' : !n.up ? 'down' : n.stale ? 'down' : n.role;
+    d.className = 'node ' + cls;
+    const role = n.paused ? 'VM pausada' : !n.up ? 'fora do ar' : n.stale ? 'primário obsoleto' : n.role === 'primary' ? 'primário' : 'standby';
+    const rows = [['LSN', n.lsn || '—'], ['Timeline', n.tl == null ? '—' : n.tl]];
+    if (n.role === 'standby') { rows.push(['Atraso', fmtBytes(n.lagBytes)], ['Replicação', n.syncState || '—']); }
+    if (!n.up && n.error) rows.push(['Erro', n.error]);
+    d.innerHTML = `<div class="nm"><span></span><span class="role"></span></div><dl></dl>`;
+    d.querySelector('.nm span').textContent = n.name;
+    d.querySelector('.role').textContent = role + (n.current && n.role === 'primary' && s.running ? ' · recebendo carga' : '');
+    const dl = d.querySelector('dl');
+    rows.forEach(([k, v]) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; dl.append(dt, dd); });
+    if (s.chaosAvailable) {
+      const bt = document.createElement('button');
+      bt.style.marginTop = '12px'; bt.style.width = '100%';
+      bt.textContent = n.paused ? `Retomar ${n.name}` : `Pausar ${n.name}`;
+      bt.title = n.paused ? 'Descongela a VM' : 'Congela a VM sem aviso (simula uma queda)';
+      bt.onclick = () => api('/api/chaos', { action: n.paused ? 'resume' : 'pause', target: n.name }).catch((e) => alert(e.message));
+      d.append(bt);
+    }
+    return d;
+  }));
+
+  // eventos
+  const tb = document.querySelector('#events tbody');
+  $('noEvents').style.display = s.events.length ? 'none' : '';
+  tb.replaceChildren(...s.events.map((e) => {
+    const tr = document.createElement('tr');
+    const cells = [
+      fmtT(e.startedAt), e.oldPrimary || '—', e.newPrimary ? e.newPrimary + (e.trocou ? '' : ' (mesmo nó)') : '—', fmtMs(e.rtoMs),
+      e.verified ? fmtN(e.lost) : 'verificando…', e.mode === 'sync' ? 'síncrona' : 'assíncrona',
+    ];
+    cells.forEach((c, i) => {
+      const td = document.createElement('td');
+      if (i === 3) td.className = 'num';
+      if (i === 4) {
+        const sp = document.createElement('span');
+        sp.className = 'tag ' + (!e.verified ? 'warn' : e.lost > 0 ? 'bad' : 'ok'); sp.textContent = c; td.append(sp);
+      } else td.textContent = c;
+      tr.append(td);
+    });
+    return tr;
+  }));
+
+  $('notes').replaceChildren(...s.notes.map((n) => { const d = document.createElement('div'); d.textContent = `${fmtT(n.t)}  ${n.msg}`; return d; }));
+  drawChart(s.series, s.running);
+}
+
+async function tick() {
+  try { const r = await fetch('/api/state', { cache: 'no-store' }); render(await r.json()); } catch (e) { /* servidor fora */ }
+}
+setInterval(tick, 500); tick();
+window.addEventListener('resize', () => { if (S) drawChart(S.series, S.running); });
+</script>
+</body>
+</html>

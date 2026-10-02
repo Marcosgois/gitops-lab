@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-ha-demo
+  labels:
+    app.kubernetes.io/name: pg-ha-demo
+    app.kubernetes.io/part-of: pg-ha-demo
+    app.openshift.io/runtime: nodejs
+  annotations:
+    app.openshift.io/connects-to: '[{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"pg-lab-1"},{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"pg-lab-2"},{"apiVersion":"kubevirt.io/v1","kind":"VirtualMachine","name":"pg-lab-3"}]'
+    image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"pg-ha-demo:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"app\")].image"}]'
+spec:
+  # UMA réplica só: o gerador de carga e as contagens de perda vivem em memória.
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: pg-ha-demo}
+  template:
+    metadata:
+      labels: {app: pg-ha-demo, app.kubernetes.io/part-of: pg-ha-demo}
+    spec:
+      serviceAccountName: pg-ha-demo
+      containers:
+      - name: app
+        image: image-registry.openshift-image-registry.svc:5000/demos/pg-ha-demo:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - {name: PG_HOSTS, value: "192.168.5.123,192.168.5.124,192.168.5.125"}
+        - {name: PG_NAMES, value: "pg-lab-1,pg-lab-2,pg-lab-3"}
+        - {name: PG_USER, value: "demo"}
+        - {name: PG_DB, value: "demo"}
+        - {name: VM_NAMESPACE, value: "demos"}
+        # Failover assistido: promove o standby mais adiantado quando não há primário por ~4 s.
+        # É o plano B de laboratório. Se o Patroni estiver instalado nas VMs, ponha "0".
+        - {name: AUTO_PROMOTE, value: "1"}
+        - name: PG_PASSWORD
+          valueFrom: {secretKeyRef: {name: pg-ha-demo, key: PG_PASSWORD}}
+        - name: PG_REPL_PASSWORD
+          valueFrom: {secretKeyRef: {name: pg-ha-demo, key: PG_REPL_PASSWORD}}
+        readinessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          periodSeconds: 5
+        livenessProbe:
+          httpGet: {path: /healthz, port: 8080}
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: "1", memory: 384Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg-ha-demo
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+spec:
+  selector: {app: pg-ha-demo}
+  ports:
+  - {port: 8080, targetPort: 8080}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pg-ha-demo
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+spec:
+  to: {kind: Service, name: pg-ha-demo}
+  port: {targetPort: 8080}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

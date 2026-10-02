@@ -1,0 +1,30 @@
+# ServiceAccount do painel + permissão mínima para PAUSAR/RETOMAR as VMs pg-lab-* (botões de queda).
+# Só os subrecursos pause/unpause de VirtualMachineInstance, só neste namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pg-ha-demo
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pg-ha-demo-vm-chaos
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+rules:
+- apiGroups: ["subresources.kubevirt.io"]
+  resources: ["virtualmachineinstances/pause", "virtualmachineinstances/unpause"]
+  verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pg-ha-demo-vm-chaos
+  labels: {app.kubernetes.io/part-of: pg-ha-demo}
+subjects:
+- kind: ServiceAccount
+  name: pg-ha-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pg-ha-demo-vm-chaos

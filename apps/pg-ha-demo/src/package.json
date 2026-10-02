@@ -1,0 +1,16 @@
+{
+  "name": "pg-ha-demo",
+  "version": "1.0.0",
+  "description": "Painel de HA do PostgreSQL com 3 réplicas: transações por segundo, perdas e tempo de recuperação",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "8.13.1"
+  }
+}
