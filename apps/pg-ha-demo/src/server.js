@@ -323,7 +323,12 @@ async function monitorTick() {
   // atual cair enquanto um antigo está de pé, o antigo não pode passar por primário válido
   // (bloquearia o failover e a aplicação o recusaria de qualquer jeito).
   const maxTl = Math.max(state.maxTl || 0, ...prims.map((n) => n.tl || 0));
-  for (const n of nodes) { n.stale = n.role === 'primary' && n.tl < maxTl; }
+  for (const n of nodes) {
+    n.stale = n.role === 'primary' && n.tl < maxTl;
+    // o pg-autorejoin da VM (lab/pg-autorejoin.sh) devolve o obsoleto ao pool sozinho
+    if (n.wasStale && n.role === 'standby') note(`${n.name} voltou ao pool como standby`);
+    n.wasStale = n.stale || (n.wasStale && n.role !== 'standby');
+  }
   const best = prims.filter((n) => !n.stale).sort((a, b) => b.tl - a.tl)[0];
   if (best) {
     for (const n of nodes) {
