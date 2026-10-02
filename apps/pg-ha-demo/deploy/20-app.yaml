@@ -31,9 +31,9 @@ spec:
         - {name: PG_USER, value: "demo"}
         - {name: PG_DB, value: "demo"}
         - {name: VM_NAMESPACE, value: "demos"}
-        # Failover assistido: promove o standby mais adiantado quando não há primário por ~4 s.
-        # É o plano B de laboratório. Se o Patroni estiver instalado nas VMs, ponha "0".
-        - {name: AUTO_PROMOTE, value: "1"}
+        # Quem elege o primário é o Patroni (lab/06-instalar-patroni.sh). "1" = failover assistido
+        # do painel (plano B, só SEM Patroni — os dois juntos disputariam a promoção).
+        - {name: AUTO_PROMOTE, value: "0"}
         - name: PG_PASSWORD
           valueFrom: {secretKeyRef: {name: pg-ha-demo, key: PG_PASSWORD}}
         - name: PG_REPL_PASSWORD
