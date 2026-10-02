@@ -258,6 +258,13 @@ function drawChart(series, running) {
 }
 
 // ---------------------------------------------------------------- render
+// o cadeado do líder foi renovado por último perto do último commit confirmado (outage.since):
+// expira ~ttl depois; a eleição leva mais uns segundos
+function patroniCountdown(s) {
+  const left = Math.ceil((s.patroni.ttl * 1000 - s.outage.elapsedMs) / 1000);
+  return left > 0 ? `Patroni troca o primário em ~${left} s` : 'Patroni elegendo o novo primário…';
+}
+
 function render(s) {
   S = s;
   $('rundot').className = 'dot ' + (s.running ? 'ok' : '');
@@ -282,7 +289,8 @@ function render(s) {
   $('sLost').textContent = t.verifying ? 'verificando…' : t.verifiedAt ? `verificado às ${fmtT(t.verifiedAt)}` : 'confirmadas e que sumiram';
   const last = s.events[0];
   if (s.outage) {
-    $('vRto').textContent = fmtMs(s.outage.elapsedMs); $('sRto').textContent = 'sem gravar há…'; $('tRto').className = 'tile bad';
+    $('vRto').textContent = fmtMs(s.outage.elapsedMs); $('tRto').className = 'tile bad';
+    $('sRto').textContent = s.patroni ? patroniCountdown(s) : 'sem gravar há…';
   } else if (last) {
     $('vRto').textContent = fmtMs(last.rtoMs); $('sRto').textContent = `${last.oldPrimary || '?'} → ${last.newPrimary || '?'}`; $('tRto').className = 'tile ok';
   } else { $('vRto').textContent = '—'; $('sRto').textContent = 'nenhuma falha ainda'; $('tRto').className = 'tile'; }
@@ -292,6 +300,7 @@ function render(s) {
   if (!s.hasPassword) b.push(['warn', 'PG_PASSWORD não está definido: o app não vai autenticar nos bancos.']);
   if (s.splitBrain) b.push(['bad', 'Mais de um primário ativo (split-brain). O de timeline antiga está obsoleto e precisa ser reconstruído com pg_rewind antes de voltar ao cluster.']);
   if (s.nodes.every((n) => !n.up)) b.push(['bad', 'Nenhum nó respondeu. Confira a VPN do laboratório e os IPs.']);
+  if (s.outage && s.patroni) b.push(['warn', `Primário sem responder. O Patroni só troca de primário quando o cadeado do líder expira no etcd (ttl ${s.patroni.ttl} s) — ${patroniCountdown(s)}. Se a VM voltar antes, o mesmo primário continua.`]);
   $('banners').replaceChildren(...b.map(([k, m]) => { const d = document.createElement('div'); d.className = 'banner ' + k; d.textContent = m; return d; }));
 
   // nós

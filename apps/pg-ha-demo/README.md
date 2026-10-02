@@ -242,6 +242,7 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 | `PROMOTE_AFTER_MS` | `4000` | quanto esperar sem primário antes de promover |
 | `QUERY_TIMEOUT_MS` / `CONNECT_TIMEOUT_MS` | `1500` / `1000` | quanto o app espera antes de dar a falha por detectada |
 | `VM_NAMESPACE` | `demos` | onde estão as VMs (botões de queda) |
+| `PATRONI_PORT` | `8008` | API do Patroni nas VMs: o painel lê o `ttl` e mostra a contagem regressiva até a troca do primário |
 | `CHAOS_CMD` | — | só testes locais, ex.: `podman {action} {name}` |
 
 ## Limitações

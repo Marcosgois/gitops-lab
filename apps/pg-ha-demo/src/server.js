@@ -45,6 +45,7 @@ const cfg = {
   promoteAfterMs: Number(process.env.PROMOTE_AFTER_MS) || 4000,
   chaosCmd: process.env.CHAOS_CMD || '', // ex.: "podman {action} {name}" (testes locais)
   vmNamespace: process.env.VM_NAMESPACE || 'demos',
+  patroniPort: Number(process.env.PATRONI_PORT) || 8008, // API REST do Patroni nas VMs (se houver)
   maxWorkers: 64,
 };
 
@@ -66,6 +67,7 @@ const state = {
   outage: null, events: [], seq: 0,
   buckets: new Map(), // segundo -> {n, errs, lat[]}
   workers: [], promoting: false, notes: [],
+  patroni: null, // {ttl, loopWait, retryTimeout, seenAt} quando o Patroni responde nas VMs
 };
 
 function note(msg) {
@@ -439,7 +441,7 @@ function snapshot() {
   const prim = nodes.filter((n) => n.role === 'primary');
   return {
     now: t, running: state.running, runId: state.runId, mode: state.mode, workers: state.workerCount,
-    chaosAvailable, autoPromote: cfg.autoPromote, hasPassword: Boolean(cfg.password),
+    chaosAvailable, autoPromote: cfg.autoPromote, hasPassword: Boolean(cfg.password), patroni: state.patroni,
     nodes: nodes.map((n) => ({
       name: n.name, role: n.role, up: n.up, lsn: n.lsn, tl: n.tl, lagBytes: n.lagBytes, syncState: n.syncState,
       paused: n.paused, stale: Boolean(n.stale), error: n.error, current: n.idx === state.currentPrimary,
@@ -509,9 +511,29 @@ const server = http.createServer(async (req, res) => {
 process.on('unhandledRejection', (e) => console.error('unhandledRejection', e && e.message));
 process.on('uncaughtException', (e) => console.error('uncaughtException', e && e.message));
 
+// Patroni: lê ttl/loop_wait da API REST de qualquer nó, a cada 10 s. Serve para a contagem
+// regressiva do painel — o líder só é trocado quando o cadeado dele expira no etcd (ttl).
+let patroniCheckedAt = 0;
+async function patroniTick() {
+  if (now() - patroniCheckedAt < 10000) return;
+  patroniCheckedAt = now();
+  for (const n of nodes) {
+    try {
+      const r = await fetch(`http://${n.host}:${cfg.patroniPort}/config`, { signal: AbortSignal.timeout(1000) });
+      if (!r.ok) continue;
+      const c = await r.json();
+      if (!state.patroni) note(`Patroni detectado (ttl ${c.ttl} s): ele elege o primário`);
+      state.patroni = { ttl: c.ttl, loopWait: c.loop_wait, retryTimeout: c.retry_timeout, seenAt: now() };
+      return;
+    } catch (e) { /* nó fora ou sem Patroni */ }
+  }
+  if (state.patroni && now() - state.patroni.seenAt > 60000) state.patroni = null;
+}
+
 (async function loop() {
   for (;;) {
     try { await monitorTick(); } catch (e) { console.error('monitor', e.message); }
+    try { await patroniTick(); } catch (e) { console.error('patroni', e.message); }
     await sleep(1000);
   }
 }());
