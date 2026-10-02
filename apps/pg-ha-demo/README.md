@@ -17,31 +17,43 @@ O painel mostra, ao vivo:
 Dois modos de confirmação: **síncrona (quórum)** — o `COMMIT` só volta depois de gravado em pelo menos
 1 standby (2 das 3 cópias, como o Mongo) — e **assíncrona** — volta ao gravar só no primário.
 
-## Estado: rodando no `lone` desde 02/10/2026
+## Estado: rodando no `lone` desde 02/10/2026 — com Patroni
 
-- ✅ **3 VMs no ar** no namespace `demos`, **uma em cada worker** (anti-afinidade), replicação em
-  quórum, painel em **https://pg-ha-demo-demos.apps.lone.sp1.tdsnxcoe.com** (VPN do lab).
-- ✅ Todos os cenários do `test/e2e.mjs` rodados contra o lab, incluindo a **partição** e a
-  **reintegração** (`04-reintegrar-no.sh`) depois de cada failover.
+- ✅ **3 VMs no ar** no namespace `demos`, **uma em cada worker** (anti-afinidade), painel em
+  **https://pg-ha-demo-demos.apps.lone.sp1.tdsnxcoe.com** (VPN do lab), gerenciado pelo **ArgoCD**.
+- ✅ **Patroni 4.1.5 + etcd 3.7.2 nas próprias VMs** (desde 02/10, `lab/06-instalar-patroni.sh`):
+  o Patroni elege o primário, rebaixa o isolado e reintegra o antigo com `pg_rewind`. O failover do
+  painel ficou desligado (`AUTO_PROMOTE=0`).
+- ✅ Todos os cenários do `test/e2e.mjs` rodados contra o lab, antes e depois do Patroni.
 
 ### Números medidos no lab (s390x, 8 workers, VMs `o1.large`)
 
-| Cenário | Modo | TPS em regime | p95 | RTO | Perdidas |
-| :--- | :--- | ---: | ---: | ---: | ---: |
-| Queda do primário | Síncrona (quórum) | ~1.350–1.500 | ~8 ms | **6,2 s** | **0** |
-| Queda do primário | Assíncrona | ~2.000–2.400 | ~5,5 ms | **6,2 s** | **0** *(standbys em dia)* |
-| Partição dos standbys + queda do primário | Assíncrona | segue gravando na partição | — | 7,0 s | **15.993** |
-| Partição dos standbys + queda do primário | Síncrona (quórum) | **0** durante a partição | — | 12,4 s *(inclui o tempo sem quórum)* | **0** |
+| Cenário | Modo | Failover do painel (antes) | Com Patroni (agora) |
+| :--- | :--- | :--- | :--- |
+| Queda do primário | Síncrona (quórum) | RTO **6,2 s**, **0** perdidas | RTO **26,2 s**, **0** perdidas |
+| Queda do primário | Assíncrona | RTO **6,2 s**, **0** perdidas *(standbys em dia)* | — *(mesmo comportamento, RTO ~26 s)* |
+| Partição dos standbys + queda do primário | Assíncrona | 7,0 s, **15.993** perdidas — o isolado grava enquanto durar a partição | 28,3 s, **9.240** perdidas — o isolado **se rebaixa em ~5 s** |
+| Partição dos standbys + queda do primário | Síncrona (quórum) | 12,4 s, **0** perdidas, TPS **0** na partição | 27,6 s, **0** perdidas, TPS **0** na partição |
+| Antigo primário volta ao pool | — | ~11 s (`pg-autorejoin`) | ~16 s (Patroni, `pg_rewind`) |
+| TPS / p95 em regime (síncrona) | — | ~1.400 / ~8 ms | ~1.000 / ~16 ms |
 
-Essa tabela é a mensagem da demo: **assíncrono** é mais rápido e continua gravando sem as
-réplicas, mas **perde** o que gravou sozinho; **síncrono** custa TPS e **para** sem quórum, mas não
-perde nada.
+A mensagem da demo, em três atos:
+1. **Assíncrono** é mais rápido e continua gravando sem as réplicas, mas **perde** o que o primário
+   gravou sozinho.
+2. **Síncrono** custa TPS e **para** sem quórum, mas **não perde nada**.
+3. **Patroni** nunca deixa dois primários: o isolado perde o cadeado no etcd e **se rebaixa sozinho**
+   (no log: `demoting self because DCS is not accessible`). Em assíncrono ainda se perde o que ele
+   gravou nesses ~5 s (`retry_timeout`) — sem o Patroni, perde-se a partição inteira.
 
-O RTO de ~6,2 s é ~1,5 s de *timeout* de consulta (o app perceber a falha) + 4 s de
-`PROMOTE_AFTER_MS` + a promoção. Dá para reduzir com `QUERY_TIMEOUT_MS` e `PROMOTE_AFTER_MS`.
+**RTO com Patroni (~26 s)**: o `ttl` mínimo do Patroni é **20 s** — o líder só é substituído quando o
+cadeado expira — mais ~1,5 s do app perceber e ~2–4 s da eleição. O failover do painel (~6,2 s) é mais
+rápido porque não espera consenso: é justamente o que permitiria dois primários.
+
+**TPS menor com Patroni**: o etcd grava em disco a cada renovação do líder (a cada `loop_wait` = 2 s)
+e disputa as 2 vCPUs com o PostgreSQL. Não investigado a fundo.
 
 Medição local anterior (Podman no Mac, só para comparação): síncrona ~2.700 TPS, assíncrona
-~3.500–4.700 TPS, mesmo RTO.
+~3.500–4.700 TPS.
 
 ## Arquivos
 
@@ -63,8 +75,9 @@ pg-ha-demo/
 │   ├── 02-configurar-replicacao.sh  1 primário + 2 standbys, sync em quórum
 │   ├── 03-deploy-painel.sh       Secret + Application do Argo; espera o build e o rollout
 │   ├── 04-reintegrar-no.sh       reconstrói um nó como standby à mão (reclona inteiro)
-│   ├── 05-instalar-autorejoin.sh instala o pg-autorejoin nas 3 VMs
-│   └── pg-autorejoin.sh          serviço da VM: antigo primário volta sozinho ao pool (pg_rewind)
+│   ├── 05-instalar-autorejoin.sh instala o pg-autorejoin (só SEM Patroni; desligado pelo 06)
+│   ├── pg-autorejoin.sh          serviço da VM: antigo primário volta sozinho ao pool (pg_rewind)
+│   └── 06-instalar-patroni.sh    etcd + Patroni nas 3 VMs; adota o cluster existente
 └── test/                      ambiente local de teste (Podman)
     ├── local-up.sh / local-down.sh   sobe/derruba 3 PostgreSQL com replicação
     ├── run-app-local.sh              roda o painel contra eles (http://localhost:8080)
@@ -86,13 +99,18 @@ pg-ha-demo/
 - **Replicação**: streaming nativo. `synchronous_standby_names = 'ANY 1 ("pg-lab-1","pg-lab-2","pg-lab-3")'`
   em **todos** os nós (lista simétrica, com aspas por causa dos hífens): a gravação confirma com
   primário + 1 standby = 2 das 3, igual ao Mongo.
-- **Failover**: o PostgreSQL **não elege sozinho** como o Mongo. Duas opções:
-  1. **Failover assistido do painel** (`AUTO_PROMOTE=1`, padrão no `20-app.yaml`): sem primário por
-     ~4 s, promove o standby com maior LSN (`pg_promote()`) e reaponta o outro (`ALTER SYSTEM SET
-     primary_conninfo` + reload). É um plano B de laboratório — **não é um produto de HA**.
-  2. **Patroni + etcd** nas mesmas VMs: o que reproduz a demo do Mongo de verdade. Não foi
-     instalado nem testado; falta confirmar se `patroni` e `etcd` instalam em CentOS Stream 9 s390x.
-     Com Patroni, ponha `AUTO_PROMOTE=0`.
+- **Failover**: o PostgreSQL **não elege sozinho** como o Mongo. Duas opções, uma de cada vez:
+  1. **Patroni + etcd** nas mesmas VMs — **o que está instalado**. etcd em cada VM (`:2379/:2380`,
+     dados em `/var/lib/etcd`), Patroni em `/opt/patroni` (venv), configuração em
+     `/etc/patroni/patroni.yml` (só o `postgres` lê — tem a senha do `replicator`), API REST em `:8008`.
+     `ttl 20 / loop_wait 2 / retry_timeout 5`, `synchronous_mode: quorum` com `synchronous_mode_strict`
+     (sem standby, não grava), `use_pg_rewind`, slots de replicação, `maximum_lag_on_failover` 1 MB.
+     O `postgresql.service` fica **desligado**: quem sobe o PostgreSQL é o `patroni.service`.
+     Ver o cluster: `sudo -u postgres /opt/patroni/bin/patronictl -c /etc/patroni/patroni.yml list`.
+  2. **Failover assistido do painel** (`AUTO_PROMOTE=1`): sem primário por ~4 s, promove o standby com
+     maior LSN (`pg_promote()`) e reaponta o outro. Mais rápido, mas é plano B de laboratório — **não é
+     produto de HA**. Só **sem** Patroni (os dois juntos disputariam a promoção), junto com o
+     `pg-autorejoin` (`05-…sh`) para o antigo primário voltar ao pool.
 - Usuários: `demo` (app; recebe `pg_monitor`, `EXECUTE` em `pg_promote`/`pg_reload_conf` **no banco
   `demo`**, e `ALTER SYSTEM` só em `primary_conninfo`) e `replicator` (só replicação). Nada de
   superusuário pela rede.
@@ -114,7 +132,7 @@ DRY_RUN=1 ./lab/01-criar-vms.sh               # confira os YAMLs gerados
 ./lab/01-criar-vms.sh                         # cria as 3 VMs e espera o SSH
 ./lab/02-configurar-replicacao.sh             # replicação; termina mostrando pg-lab-2/3 em "quorum"
 ./lab/03-deploy-painel.sh                     # Secret + Application do Argo; imprime a URL do painel
-./lab/05-instalar-autorejoin.sh               # antigo primário volta sozinho ao pool
+./lab/06-instalar-patroni.sh                  # etcd + Patroni (eleição, rebaixamento, reintegração)
 ```
 
 O painel é gerenciado pelo **ArgoCD** (`application-pg-ha-demo.yaml` na raiz do repositório, mesmo
@@ -131,20 +149,37 @@ crie os Host Overrides no OPNsense (a mesma pendência do Mongo).
 
 1. Abra o painel. **Iniciar carga** em modo **síncrona**: TPS estável, 0 perdidas.
 2. **Pausar o primário** (congela a VM sem aviso). O gráfico cai a zero, o cartão mostra "sem gravar
-   há…", um standby é promovido, o TPS volta. A tabela de eventos registra o **tempo de recuperação**
-   e as **perdidas** — em síncrono, **0**.
+   há…"; ~20 s depois o cadeado do líder expira no etcd e o Patroni promove um standby; o TPS volta.
+   A tabela de eventos registra o **tempo de recuperação** e as **perdidas** — em síncrono, **0**.
 3. **Retomar VM**: o antigo primário volta com timeline velha — o painel o marca **primário obsoleto**
-   por alguns segundos e, sozinho, ele **volta ao pool como standby** (~10 s): o `pg-autorejoin` da VM
-   roda `pg_rewind` contra o novo primário, como o MongoDB faz no rollback. Em assíncrono, o que só
-   ele tinha (as **perdidas**) é descartado nesse momento.
+   por alguns segundos e o Patroni o **devolve ao pool como standby** (~16 s, `pg_rewind`), como o
+   MongoDB faz no rollback. Em assíncrono, o que só ele tinha (as **perdidas**) é descartado aí.
 4. Repita em modo **assíncrona** e compare: TPS maior, e perdas **se** houver atraso na réplica.
-5. *(cenário de partição)* pause os dois standbys, deixe o primário gravar, pause o
-   primário e retome os standbys: em assíncrono, o que foi gravado na partição **se perde**; em
-   síncrono, as gravações **param** (nenhuma perda, mas sem disponibilidade).
+5. *(cenário de partição)* pause os dois standbys, deixe o primário gravar, pause o primário e retome
+   os standbys: em assíncrono, o que foi gravado na partição **se perde** — mas só ~5 s, porque o
+   Patroni rebaixa o isolado (mostre o `journalctl -u patroni` dele); em síncrono, as gravações
+   **param** (nenhuma perda, mas sem disponibilidade).
 
 ## Pegadinhas já encontradas (corrigidas nos scripts)
 
-Encontradas na primeira execução no lab (02/10):
+Na instalação do Patroni (02/10):
+
+- **Não há pacote** de Patroni nem de etcd no CentOS Stream 9 nem no EPEL (s390x). etcd = binário
+  oficial `linux-s390x` do GitHub (o servidor roda nativo, sem `ETCD_UNSUPPORTED_ARCH`); Patroni = pip.
+- O PyPI **não tem `psutil` para s390x** e a VM não tem compilador: o venv usa
+  `--system-site-packages` com `python3-psutil` e `python3-psycopg2` do CentOS. O `psycopg2` precisa do
+  pacote **`libpq`** (13) — o PostgreSQL 16 do módulo traz só uma libpq privada.
+- **`ttl` mínimo do Patroni é 20** (a validação recusa 8). Daí o RTO de ~26 s.
+- `postgresql.listen` é `ip1,ip2:porta` (uma porta só no fim), não `ip1:porta,ip2:porta`.
+- `patroni --validate-config` reclama da porta 5432 em uso enquanto o PostgreSQL antigo roda: usar
+  `--ignore-listen-port`.
+- Os parâmetros do `ALTER SYSTEM` (`postgresql.auto.conf`) passariam por cima dos do Patroni: o script
+  faz `ALTER SYSTEM RESET ALL` no primário e zera o arquivo nos standbys antes da troca.
+- **Eventos de 0 ms no painel**: ao rebaixar o primário o Patroni derruba as conexões, e respostas de
+  `INSERT`s que já estavam em voo fechavam a queda na hora (8 eventos falsos). Agora só uma gravação
+  **enviada depois** do primeiro erro conta como recuperação.
+
+Na primeira execução no lab (02/10):
 
 - **Cota do namespace `demos`** (`default-quota`, 48 GiB de memória reservada): com o Mongo e as VMs
   de demo, a terceira VM `u1.large` não sobe (`exceeded quota`). Por isso `o1.large`.
@@ -181,8 +216,8 @@ oc port-forward -n demos deploy/pg-ha-demo 18080:8080 &
 cd test && PORT=18080 node e2e.mjs sync        # ou: async | sync split | async split
 ```
 
-Depois de cada teste, retome as VMs pausadas e reintegre o antigo primário com
-`./lab/04-reintegrar-no.sh <nó> <IP do primário atual>` (o painel mostra quem é o primário).
+Depois de cada teste, retome as VMs pausadas pelo painel: o Patroni devolve o antigo primário ao
+pool sozinho (~16 s). Para conferir: `patronictl list` (acima) — os três como `Leader` / `Quorum Standby`.
 
 ## Rodar localmente (sem laboratório)
 
@@ -203,7 +238,7 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 | `PG_NAMES` | `pg-lab-1,pg-lab-2,pg-lab-3` | nomes (= `application_name` e nome da VM) |
 | `PG_USER` / `PG_DB` / `PG_PASSWORD` | `demo` / `demo` / — | credencial do app (a senha vem do Secret) |
 | `PG_REPL_PASSWORD` | — | usada só no failover assistido |
-| `AUTO_PROMOTE` | `0` (no Deployment: `1`) | failover assistido |
+| `AUTO_PROMOTE` | `0` (no Deployment: `0`, o Patroni elege) | failover assistido do painel — `1` só sem Patroni |
 | `PROMOTE_AFTER_MS` | `4000` | quanto esperar sem primário antes de promover |
 | `QUERY_TIMEOUT_MS` / `CONNECT_TIMEOUT_MS` | `1500` / `1000` | quanto o app espera antes de dar a falha por detectada |
 | `VM_NAMESPACE` | `demos` | onde estão as VMs (botões de queda) |
@@ -211,12 +246,11 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 
 ## Limitações
 
-- **O retorno ao pool depende do `pg-autorejoin`** (`lab/05-instalar-autorejoin.sh`). O PostgreSQL,
-  sozinho, não reintegra o antigo primário — de propósito, porque ele pode ter transações que o novo
-  primário não tem. O serviço só age quando o nó local é primário **e** um par responde como
-  primário de timeline maior; com o PostgreSQL parado não faz nada. Sem ele (ou desligado com
-  `systemctl disable --now pg-autorejoin`), use `./lab/04-reintegrar-no.sh`. Em produção, quem faz
-  isso (e a eleição, no lugar do failover assistido do painel) é o **Patroni**.
+- **Voltar ao modo sem Patroni não está automatizado.** Seria: parar e desabilitar `patroni` e `etcd`
+  nas 3 VMs, devolver ao `postgresql.service` (o Patroni renomeou o `postgresql.conf` para
+  `postgresql.base.conf`), refazer a replicação (`02-…sh`), religar o `pg-autorejoin` (`05-…sh`) e pôr
+  `AUTO_PROMOTE=1`.
+- **etcd sem TLS** e Patroni com a API REST aberta na rede do lab — só laboratório.
 - O gerador de carga e a contagem de perdas ficam **em memória**: uma réplica só, e reiniciar o pod zera.
 - A verificação de perdas roda 1,5 s depois de cada recuperação e ao parar a carga, no primário atual.
 - O RTO inclui o tempo que o **app** leva para notar a falha (`QUERY_TIMEOUT_MS`).
