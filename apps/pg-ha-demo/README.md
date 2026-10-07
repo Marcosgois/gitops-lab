@@ -2,7 +2,7 @@
 
 Painel web + gerador de carga para demonstrar **alta disponibilidade de PostgreSQL em 3 VMs** no
 OpenShift Virtualization (LinuxONE), do mesmo jeito que o replica set de MongoDB `rs0` já mostrado
-no `lone`. Criado em 01/10/2026 depois da apresentação ao time do Binatto (SERPRO).
+no `lone`. Criado em 01/10/2026 depois de uma apresentação a um cliente.
 
 O painel mostra, ao vivo:
 
@@ -19,12 +19,17 @@ Dois modos de confirmação: **síncrona (quórum)** — o `COMMIT` só volta de
 
 ## Estado: rodando no `lone` desde 02/10/2026 — com Patroni
 
-- ✅ **3 VMs no ar** no namespace `demos`, **uma em cada worker** (anti-afinidade), painel em
+- ✅ **3 VMs no ar** no namespace `demos`, **uma em cada worker** (anti-afinidade *preferida*, não
+  obrigatória: depois do POR de 05/10 o `pg-lab-1` subiu num nó de **infra**; a Live Migration de
+  06/10 o levou de volta a um worker), painel em
   **https://pg-ha-demo-demos.apps.lone.sp1.tdsnxcoe.com** (VPN do lab), gerenciado pelo **ArgoCD**.
 - ✅ **Patroni 4.1.5 + etcd 3.7.2 nas próprias VMs** (desde 02/10, `lab/06-instalar-patroni.sh`):
   o Patroni elege o primário, rebaixa o isolado e reintegra o antigo com `pg_rewind`. O failover do
   painel ficou desligado (`AUTO_PROMOTE=0`).
 - ✅ Todos os cenários do `test/e2e.mjs` rodados contra o lab, antes e depois do Patroni.
+- ⚠️ Em 06/10 o cluster foi encontrado **no modo sem Patroni** (Patroni/etcd desligados, painel com
+  `AUTO_PROMOTE` ativo, primário `pg-lab-3`). Reinstalado com `lab/06-instalar-patroni.sh` sem
+  problemas. **No pré-voo, confira sempre o `patronictl list`** — o painel funciona nos dois modos.
 
 ### Números medidos no lab (s390x, 8 workers, VMs `o1.large`)
 
@@ -36,6 +41,31 @@ Dois modos de confirmação: **síncrona (quórum)** — o `COMMIT` só volta de
 | Partição dos standbys + queda do primário | Síncrona (quórum) | 12,4 s, **0** perdidas, TPS **0** na partição | 27,6 s, **0** perdidas, TPS **0** na partição |
 | Antigo primário volta ao pool | — | ~11 s (`pg-autorejoin`) | ~16 s (Patroni, `pg_rewind`) |
 | TPS / p95 em regime (síncrona) | — | ~1.400 / ~8 ms | ~1.000 / ~16 ms |
+
+**Ensaio de 06/10/2026 (com Patroni, mesmo roteiro):** queda do primário em síncrono — RTO **22,5 s**,
+**0** perdidas (12.542 confirmadas, 12.542 presentes); antigo primário de volta como standby em
+**10,5 s** (`pg_rewind`); partição em assíncrono — RTO 26,0 s, **16.115** perdidas (~6 s de gravação
+do isolado a ~2.700 TPS); partição em síncrono — RTO 32,0 s, **0** perdidas, TPS **0** na partição.
+Regime síncrono: ~1.200–1.400 TPS, p95 ~12 ms.
+
+### Live Migration de um standby com carga rodando (06/10/2026)
+
+`VirtualMachineInstanceMigration` do **`pg-lab-1` (standby)** com carga **síncrona** de 8 workers no
+painel; amostras de 1 s pela API do painel:
+
+| Medida | Resultado |
+| :--- | :--- |
+| Fase final | **`Succeeded`** em **20 s** (~10 s agendando o pod de destino, ~4 s de cópia `PreCopy`) |
+| Nó | `infra1` → `worker2` |
+| TPS | média **1.424 antes → 1.302 durante (−9 %)** → 1.240 depois; mínimo de 1 s: 937; **nenhum segundo com TPS 0** |
+| p95 | 11,7 ms antes → **17,1 ms** de pico durante |
+| Erros / perdidas / trocas de primário | **0 / 0 / 0** |
+
+**Nunca migre o primário na demo** — confira antes com `patronictl list`. Pegadinha da cota: a
+migração cria um segundo pod com **a mesma reserva de memória** da VM; se a `ResourceQuota` do
+namespace não comportar, ela fica **`Pending` para sempre** sem erro na VM (o motivo só aparece em
+`oc get events -n demos`: `exceeded quota`). As VMs `o1.large` couberam; as do MongoDB (8,3 GiB de
+reserva) não couberam em 06/10.
 
 A mensagem da demo, em três atos:
 1. **Assíncrono** é mais rápido e continua gravando sem as réplicas, mas **perde** o que o primário
@@ -270,4 +300,4 @@ node e2e.mjs async split             # só a partição (rode com os 3 nós saud
 - O gerador de carga e a contagem de perdas ficam **em memória**: uma réplica só, e reiniciar o pod zera.
 - A verificação de perdas roda 1,5 s depois de cada recuperação e ao parar a carga, no primário atual.
 - O RTO inclui o tempo que o **app** leva para notar a falha (`QUERY_TIMEOUT_MS`).
-- Dado **sintético** (tabela `ledger`); nada do SERPRO entra no laboratório.
+- Dado **sintético** (tabela `ledger`); nenhum dado de cliente entra no laboratório.

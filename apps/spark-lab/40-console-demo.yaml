@@ -1,0 +1,79 @@
+# Console da demo: um pod parado (o "driver") onde se abre o spark-shell; os executores sobem como pods,
+# espalhados pelos nós (anti-afinidade). Abrir com ./console.sh. Ver o roteiro no README.
+#
+#   oc apply -n spark-lab -f 40-console-demo.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spark-demo
+data:
+  init.scala: |
+    // Carregado ao abrir o console: a tabela `vendas` (100 milhões de linhas em Parquet ZSTD no S3)
+    val base = s"s3a://${sys.env("BUCKET_NAME")}"
+    spark.read.parquet(s"$base/de_s390x_distribuido/vendas_zstd").createOrReplaceTempView("vendas")
+    def q(consulta: String): Unit = {
+      val t0 = System.nanoTime
+      spark.sql(consulta).show(20, false)
+      println(f"(${(System.nanoTime - t0) / 1e9}%.1f s)")
+    }
+    def gravar(consulta: String, nome: String): Unit = {   // grava o resultado no S3 (Parquet ZSTD)
+      val t0 = System.nanoTime
+      spark.sql(consulta).write.mode("overwrite").option("compression", "zstd").parquet(s"$base/demo/$nome")
+      println(f"gravado em $base/demo/$nome (${(System.nanoTime - t0) / 1e9}%.1f s)")
+    }
+    def executores(): Unit = spark.sparkContext.getExecutorMemoryStatus.keys.toSeq.sorted.foreach(println)
+    println(s"""
+    |  Spark ${spark.version} em ${System.getProperty("os.arch")} (${java.nio.ByteOrder.nativeOrder}), Java ${System.getProperty("java.version")}
+    |  executores: ${spark.sparkContext.getExecutorMemoryStatus.size - 1}   tabela: vendas  ->  $base/de_s390x_distribuido/vendas_zstd
+    |  use:  q("select count(*) from vendas")    gravar("select ...", "nome")    executores()
+    |""".stripMargin)
+  executor-template.yaml: |
+    apiVersion: v1
+    kind: Pod
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector: { matchLabels: { spark-role: executor } }
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: spark-kubernetes-executor
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: spark-console
+  labels: { app: spark-console }
+spec:
+  serviceAccountName: spark
+  containers:
+    - name: driver
+      image: image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+      command: ["sleep", "infinity"]
+      env:
+        - { name: HOME, value: /tmp }
+        - name: POD_IP
+          valueFrom: { fieldRef: { fieldPath: status.podIP } }
+      envFrom:
+        - configMapRef: { name: dados }
+        - secretRef: { name: dados }
+      resources:
+        requests: { cpu: "1", memory: 5Gi }
+        limits: { cpu: "2", memory: 6Gi }
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+      volumeMounts:
+        - { name: demo, mountPath: /demo }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - name: demo
+      configMap: { name: spark-demo }
+    - name: tmp
+      emptyDir: { sizeLimit: 10Gi }

@@ -1,0 +1,93 @@
+# Spark distribuído no OpenShift s390x: o driver (este Job) cria os executores como pods, via API do
+# Kubernetes (spark.master=k8s://...). Mesmo teste-parquet-s3.scala, com mais linhas e saída separada.
+#
+#   oc apply -n spark-lab -f 30-job-distribuido.yaml
+#   oc logs -n spark-lab -f job/teste-distribuido | grep '###'
+#   oc get pods -n spark-lab -l spark-role=executor -o wide      # onde os executores rodaram
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, configmaps, persistentvolumeclaims]
+    verbs: [create, get, list, watch, delete, deletecollection, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver
+subjects:
+  - { kind: ServiceAccount, name: spark }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: spark-driver }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: teste-distribuido
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: { app: teste-distribuido }
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: driver
+          image: image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+          command: ["/bin/bash", "-c"]
+          args:
+            - >-
+              /opt/spark/bin/spark-shell
+              --master k8s://https://kubernetes.default.svc:443 --deploy-mode client
+              --driver-memory 4g
+              --conf spark.driver.host=$POD_IP --conf spark.driver.port=7078 --conf spark.driver.blockManager.port=7079
+              --conf spark.kubernetes.namespace=spark-lab
+              --conf spark.kubernetes.container.image=image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+              --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark
+              --conf spark.kubernetes.executor.podNamePrefix=teste-distribuido
+              --conf spark.executor.instances=$EXECUTORES --conf spark.executor.cores=4 --conf spark.executor.memory=6g
+              --conf spark.kubernetes.executor.request.cores=2 --conf spark.kubernetes.executor.limit.cores=4
+              --conf spark.kubernetes.executor.secretKeyRef.AWS_ACCESS_KEY_ID=dados:AWS_ACCESS_KEY_ID
+              --conf spark.kubernetes.executor.secretKeyRef.AWS_SECRET_ACCESS_KEY=dados:AWS_SECRET_ACCESS_KEY
+              --conf spark.scheduler.minRegisteredResourcesRatio=1.0
+              --conf spark.scheduler.maxRegisteredResourcesWaitingTime=180s
+              --conf spark.ui.enabled=false
+              --conf spark.sql.catalogImplementation=in-memory
+              --conf spark.hadoop.fs.s3a.endpoint=http://rook-ceph-rgw-ocs-storagecluster-cephobjectstore.openshift-storage.svc:80
+              --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
+              --conf spark.hadoop.fs.s3a.path.style.access=true
+              --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
+              < /teste/teste-parquet-s3.scala
+          env:
+            - { name: EXECUTORES, value: "3" }
+            - { name: LINHAS, value: "100000000" }
+            - { name: LINHAS_LE, value: "5000000" }
+            - { name: SAIDA, value: de_s390x_distribuido }
+            - { name: HOME, value: /tmp }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+          envFrom:
+            - configMapRef: { name: dados }
+            - secretRef: { name: dados }
+          resources:
+            requests: { cpu: "1", memory: 5Gi }
+            limits: { cpu: "2", memory: 6Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: teste, mountPath: /teste }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: teste
+          configMap: { name: teste-parquet-s3 }
+        - name: tmp
+          emptyDir: { sizeLimit: 10Gi }

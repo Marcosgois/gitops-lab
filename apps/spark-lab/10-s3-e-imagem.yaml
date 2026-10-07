@@ -1,0 +1,70 @@
+# Spark SQL em s390x no OpenShift: bucket S3 (Ceph RGW) + imagem do Spark construída no próprio cluster.
+#
+# Não existe imagem oficial do Spark para s390x (apache/spark: só amd64/arm64). O Spark é JVM, então a
+# imagem é o tarball oficial da Apache (sha512 conferido) sobre o OpenJDK 21 da Red Hat (UBI 9, que tem
+# s390x). O build roda nos nós s390x, logo a imagem sai s390x. Versão 4.0.1 = a validada na receita da
+# IBM para Linux on Z (github.com/linux-on-ibm-z/docs/wiki/Building-Apache-Spark).
+#
+# Aplicar:  oc new-project spark-lab && oc apply -n spark-lab -f 10-s3-e-imagem.yaml
+#           oc start-build spark-s390x -n spark-lab --follow
+---
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: dados
+spec:
+  generateBucketName: spark-lab-dados
+  storageClassName: ocs-storagecluster-ceph-rgw
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: spark-s390x
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: spark-s390x
+spec:
+  runPolicy: Serial
+  output:
+    to:
+      kind: ImageStreamTag
+      name: spark-s390x:4.0.1
+  resources:
+    limits:
+      memory: 2Gi
+  strategy:
+    type: Docker
+    dockerStrategy:
+      noCache: false
+  source:
+    type: Dockerfile
+    dockerfile: |
+      FROM registry.access.redhat.com/ubi9/ubi AS baixa
+      ARG SPARK=4.0.1
+      ARG HADOOP=3.4.1
+      ARG AWSSDK=2.24.6
+      WORKDIR /tmp
+      RUN set -e; \
+          base=https://archive.apache.org/dist/spark/spark-$SPARK; \
+          curl -fsSL -o spark.tgz $base/spark-$SPARK-bin-hadoop3.tgz; \
+          curl -fsSL -o spark.sha512 $base/spark-$SPARK-bin-hadoop3.tgz.sha512; \
+          esperado=$(tr -d ' \n\r' < spark.sha512 | grep -oiE '[0-9a-f]{128}' | tr A-F a-f); \
+          echo "$esperado  spark.tgz" | sha512sum -c -; \
+          tar -xzf spark.tgz -C /opt; mv /opt/spark-$SPARK-bin-hadoop3 /opt/spark; \
+          m=https://repo1.maven.org/maven2; \
+          curl -fsSL -o /opt/spark/jars/hadoop-aws-$HADOOP.jar $m/org/apache/hadoop/hadoop-aws/$HADOOP/hadoop-aws-$HADOOP.jar; \
+          curl -fsSL -o /opt/spark/jars/awssdk-bundle-$AWSSDK.jar $m/software/amazon/awssdk/bundle/$AWSSDK/bundle-$AWSSDK.jar; \
+          cp /opt/spark/kubernetes/dockerfiles/spark/entrypoint.sh /opt/entrypoint.sh; \
+          sed -i 's#/usr/bin/tini -s -- ##' /opt/entrypoint.sh; chmod 755 /opt/entrypoint.sh
+      FROM registry.access.redhat.com/ubi9/openjdk-21-runtime
+      USER 0
+      RUN microdnf -y install procps-ng && microdnf clean all
+      COPY --from=baixa /opt/spark /opt/spark
+      COPY --from=baixa /opt/entrypoint.sh /opt/entrypoint.sh
+      RUN mkdir -p /opt/spark/work-dir && chgrp -R 0 /opt/spark/work-dir && chmod -R g+rwX /opt/spark/work-dir
+      ENV SPARK_HOME=/opt/spark PATH=/opt/spark/bin:$PATH
+      WORKDIR /opt/spark/work-dir
+      USER 185
+      ENTRYPOINT ["/opt/entrypoint.sh"]

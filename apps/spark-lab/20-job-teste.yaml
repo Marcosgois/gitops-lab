@@ -1,0 +1,52 @@
+# Job: Spark SQL (modo local, 1 pod) roda teste-parquet-s3.scala contra o bucket do ObjectBucketClaim `dados`.
+#
+#   oc create configmap teste-parquet-s3 -n spark-lab --from-file=teste-parquet-s3.scala --dry-run=client -o yaml | oc apply -f -
+#   oc delete job teste-parquet-s3 -n spark-lab --ignore-not-found && oc apply -n spark-lab -f 20-job-teste.yaml
+#   oc logs -n spark-lab -f job/teste-parquet-s3 | grep '###'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: teste-parquet-s3
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: spark
+          image: image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+          command: ["/bin/bash", "-c"]
+          # spark-shell sem terminal: o script entra pela entrada padrão (com -i ele sai antes de rodar)
+          args:
+            - >-
+              /opt/spark/bin/spark-shell --master "local[8]" --driver-memory 8g
+              --conf spark.ui.enabled=false
+              --conf spark.sql.catalogImplementation=in-memory
+              --conf spark.hadoop.fs.s3a.endpoint=http://rook-ceph-rgw-ocs-storagecluster-cephobjectstore.openshift-storage.svc:80
+              --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
+              --conf spark.hadoop.fs.s3a.path.style.access=true
+              --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
+              < /teste/teste-parquet-s3.scala
+          # catalogImplementation=in-memory: sem Hive (o Hive tem problemas em big-endian).
+          # Credenciais S3: a cadeia padrão do S3A lê AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY do ambiente.
+          env:
+            - { name: LINHAS, value: "20000000" }
+            - { name: LINHAS_LE, value: "5000000" }
+            - { name: HOME, value: /tmp }
+          envFrom:
+            - configMapRef: { name: dados }   # BUCKET_NAME etc. (do ObjectBucketClaim)
+            - secretRef: { name: dados }      # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+          resources:
+            requests: { cpu: "4", memory: 10Gi }
+            limits: { cpu: "8", memory: 12Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: teste, mountPath: /teste }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: teste
+          configMap: { name: teste-parquet-s3 }
+        - name: tmp
+          emptyDir: { sizeLimit: 20Gi }
