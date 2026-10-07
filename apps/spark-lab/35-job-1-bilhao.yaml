@@ -1,0 +1,74 @@
+# Tabela de 1 bilhão de linhas (~10 GB em Parquet ZSTD) para a demo. Mesmo teste-parquet-s3.scala:
+# grava primeiro (log: "### TABELA PRONTA"), depois relê e confere. Committer padrão do Spark; o
+# committer próprio do S3 (spark-hadoop-cloud, "magic") fica para depois — exige reconstruir a imagem.
+#
+#   oc create configmap teste-parquet-s3 -n spark-lab --from-file=teste-parquet-s3.scala --dry-run=client -o yaml | oc apply -f -
+#   oc apply -n spark-lab -f 35-job-1-bilhao.yaml
+#   oc logs -n spark-lab -f job/teste-1-bilhao | grep '###'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: teste-1-bilhao
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: spark
+      restartPolicy: Never
+      containers:
+        - name: driver
+          image: image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+          command: ["/bin/bash", "-c"]
+          args:
+            - >-
+              /opt/spark/bin/spark-shell
+              --master k8s://https://kubernetes.default.svc:443 --deploy-mode client
+              --driver-memory 4g
+              --conf spark.driver.host=$POD_IP
+              --conf spark.kubernetes.namespace=spark-lab
+              --conf spark.kubernetes.container.image=image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+              --conf spark.kubernetes.authenticate.driver.serviceAccountName=spark
+              --conf spark.kubernetes.executor.podNamePrefix=teste-1bi
+              --conf spark.kubernetes.executor.podTemplateFile=/demo/executor-template.yaml
+              --conf spark.executor.instances=$EXECUTORES --conf spark.executor.cores=4 --conf spark.executor.memory=6g
+              --conf spark.kubernetes.executor.request.cores=2 --conf spark.kubernetes.executor.limit.cores=4
+              --conf spark.kubernetes.executor.secretKeyRef.AWS_ACCESS_KEY_ID=dados:AWS_ACCESS_KEY_ID
+              --conf spark.kubernetes.executor.secretKeyRef.AWS_SECRET_ACCESS_KEY=dados:AWS_SECRET_ACCESS_KEY
+              --conf spark.scheduler.minRegisteredResourcesRatio=1.0
+              --conf spark.scheduler.maxRegisteredResourcesWaitingTime=180s
+              --conf spark.ui.enabled=false
+              --conf spark.sql.catalogImplementation=in-memory
+              --conf spark.hadoop.fs.s3a.endpoint=http://rook-ceph-rgw-ocs-storagecluster-cephobjectstore.openshift-storage.svc:80
+              --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
+              --conf spark.hadoop.fs.s3a.path.style.access=true
+              --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
+              < /teste/teste-parquet-s3.scala
+          env:
+            - { name: EXECUTORES, value: "2" }   # 2 para caber na cota ao lado de uma sessão do console.sh aberta
+            - { name: LINHAS, value: "1000000000" }
+            - { name: LINHAS_LE, value: "5000000" }
+            - { name: SAIDA, value: de_s390x_1bi }
+            - { name: CODECS, value: zstd }
+            - { name: HOME, value: /tmp }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+          envFrom:
+            - configMapRef: { name: dados }
+            - secretRef: { name: dados }
+          resources:
+            requests: { cpu: "1", memory: 5Gi }
+            limits: { cpu: "2", memory: 6Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: teste, mountPath: /teste }
+            - { name: demo, mountPath: /demo }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: teste
+          configMap: { name: teste-parquet-s3 }
+        - name: demo
+          configMap: { name: spark-demo }
+        - name: tmp
+          emptyDir: { sizeLimit: 10Gi }

@@ -55,6 +55,7 @@ spec:
   containers:
     - name: driver
       image: image-registry.openshift-image-registry.svc:5000/spark-lab/spark-s390x:4.0.1
+      imagePullPolicy: Always
       command: ["sleep", "infinity"]
       env:
         - { name: HOME, value: /tmp }

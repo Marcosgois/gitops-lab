@@ -14,6 +14,7 @@ val linhas   = sys.env.getOrElse("LINHAS", "50000000").toLong
 val linhasLE = sys.env.getOrElse("LINHAS_LE", "5000000").toLong
 val base     = s"s3a://${sys.env("BUCKET_NAME")}"
 val saida    = sys.env.getOrElse("SAIDA", "de_s390x")   // pasta de saída no bucket
+val codecs   = sys.env.getOrElse("CODECS", "snappy,zstd").split(",").toSeq   // compressões a gravar
 println(s"### executores=${spark.sparkContext.getExecutorMemoryStatus.size - 1} master=${spark.sparkContext.master}")
 println(s"### os.arch=${System.getProperty("os.arch")} endian=${java.nio.ByteOrder.nativeOrder} java=${System.getProperty("java.version")} spark=${spark.version} linhas=$linhas")
 
@@ -54,13 +55,14 @@ def confere(rotulo: String, esperado: Seq[Any], obtido: Seq[Any]): Boolean = {
 // Tudo num bloco só: no REPL, um erro aborta só a instrução em que ocorreu — fora de um bloco, o teste
 // seguiria e terminaria "verde". Aqui qualquer exceção encerra o processo com código 2.
 try {
+  // Grava primeiro (a tabela fica disponível o quanto antes), depois confere
+  for (codec <- codecs)
+    tempo(s"gravar $linhas linhas ($codec)")(gerar(linhas).write.mode("overwrite").option("compression", codec).parquet(s"$base/$saida/vendas_$codec"))
+  println(s"### TABELA PRONTA: $base/$saida")
   val esperado = tempo("resumo do dado gerado (memória)")(resumo(gerar(linhas)))
   var tudoOk = confere("gerado em memória", esperado, esperado)
-  for (codec <- Seq("snappy", "zstd")) {
-    val dest = s"$base/$saida/vendas_$codec"
-    tempo(s"gravar $linhas linhas ($codec)")(gerar(linhas).write.mode("overwrite").option("compression", codec).parquet(dest))
-    tudoOk &= confere(s"relido do S3 ($codec)", esperado, tempo(s"reler e resumir ($codec)")(resumo(spark.read.parquet(dest))))
-  }
+  for (codec <- codecs)
+    tudoOk &= confere(s"relido do S3 ($codec)", esperado, tempo(s"reler e resumir ($codec)")(resumo(spark.read.parquet(s"$base/$saida/vendas_$codec"))))
 
   // Arquivos gravados por máquina little-endian (x86/ARM) com as mesmas fórmulas
   val fs = org.apache.hadoop.fs.FileSystem.get(new java.net.URI(base), spark.sparkContext.hadoopConfiguration)

@@ -4,7 +4,7 @@ Prova de viabilidade de **processamento desacoplado do armazenamento** no OpenSh
 **Spark SQL** em pods s390x lendo e gravando **Parquet (SNAPPY e ZSTD) num S3** — no lab, o Ceph RGW do
 próprio cluster. Só **dado sintético**. Criado em 07/10/2026.
 
-**Por que Spark e não Trino:** o Trino (e o Presto) **não roda em s390x**. O código recusa a arquitetura
+**Por que Spark e não Trino:** o Trino (e o Presto) **não roda em s390x**. Testado também com a trava removida (07/10): devolve resultados errados sem erro e **não lê nem grava Parquet comprimido** (`Zstandard requires a little endian platform`). O código recusa a arquitetura
 e exige processador little-endian em todas as versões, da 360 à 484. Testado: o Trino 483 com Java 25
 encerra com `Trino requires amd64, aarch64, or ppc64le on Linux (found s390x)`. O Spark é a alternativa com
 receita de build oficial da IBM para Linux on Z (Spark 4.0.1).
@@ -17,6 +17,7 @@ receita de build oficial da IBM para Linux on Z (Spark 4.0.1).
 | Codecs nativos | `snappy-java` 1.1.10.7, `zstd-jni` 1.5.6-9 e `lz4-java` 1.8.0 da imagem trazem `.so` para Linux s390x |
 | 1 pod (`local[8]`), 20 milhões de linhas | Gravou e releu Parquet **SNAPPY e ZSTD** no S3. O resumo (contagem, somas exatas, distintos, datas, tamanho de texto, soma de `double`) **bateu exatamente** com o dado gerado |
 | Distribuído: driver + **3 executores em pods**, 100 milhões de linhas | O mesmo teste, **tudo confere**. Gravação de 100 milhões de linhas: 47,7 s (SNAPPY) e 24,6 s (ZSTD); reler e resumir: 8,9 s e 6,2 s |
+| **1 bilhão de linhas** (~10 GB em ZSTD), 2 executores | Gravação: 5 min 17 s. Releitura e resumo: 76,5 s. **Tudo confere.** Consultas: top 5 clientes com filtro de data em 15,9 s; faturamento mensal da tabela inteira em 72,8 s |
 | **Arquivos entre arquiteturas, little-endian → s390x** | O Spark em s390x leu Parquet gravado pelo `pyarrow` num ARM little-endian, com as mesmas fórmulas, e **confere** |
 | **Arquivos entre arquiteturas, s390x → little-endian** | O `pyarrow` no ARM leu o Parquet gravado pelo Spark em s390x (`parquet-mr 1.15.2`) e conferiu contra as fórmulas calculadas lá, **sem Spark**. Confere |
 
@@ -30,6 +31,7 @@ apps/spark-lab/
 ├── 10-s3-e-imagem.yaml        ObjectBucketClaim `dados` (Ceph RGW) + ImageStream + BuildConfig da imagem s390x
 ├── 20-job-teste.yaml          Job: Spark em 1 pod (local[8])
 ├── 30-job-distribuido.yaml    ServiceAccount/Role + Job: driver que cria 3 executores como pods
+├── 35-job-1-bilhao.yaml       Job: tabela de 1 bilhão de linhas (de_s390x_1bi), grava antes de conferir
 ├── 40-console-demo.yaml       pod `spark-console` + init.scala (tabela `vendas`, `q`, `gravar`) + template que espalha os executores
 ├── console.sh                 abre o spark-shell da demo (3 executores; --local = plano B)
 ├── espiar.sh                  lado do Mac: abre no S3 o que o s390x gravou (credenciais tiradas do cluster)
@@ -142,6 +144,10 @@ oc get pod spark-console -n spark-lab          # Running; se não existir: oc ap
 
 - **`spark-shell -i script` num Job sai sem rodar** o script, porque não há terminal e ele lê o fim da
   entrada antes. Use `spark-shell < script`.
+- **O REPL do Spark 4 (Scala 2.13) ignora `-i` e `-I`** sem avisar. O `console.sh` manda `:load /demo/init.scala`
+  como primeiro comando e depois repassa o teclado com `cat`. Sem histórico nem Tab, mas colar e Enter funcionam.
+- **Uma sessão do console por vez:** o pod tem limite de 6 GiB e cada `spark-shell` reserva 4 GiB. O `console.sh`
+  recusa abrir uma segunda.
 - **No REPL, um erro aborta só a instrução** em que ocorreu e o resto segue. O teste chegou a terminar
   "verde" com o S3 falhando. Por isso o teste roda num único `try` que sai com código ≠ 0.
 - **Hadoop 3.4 usa o AWS SDK v2.** A classe antiga `org.apache.hadoop.fs.s3a.auth.EnvironmentVariableCredentialsProvider`
@@ -156,4 +162,7 @@ oc get pod spark-console -n spark-lab          # Running; se não existir: oc ap
 
 - **Catálogo de tabelas** sem Hive Metastore: Iceberg com catálogo JDBC no PostgreSQL do `pg-ha-demo`.
 - **Consultas reais do cliente:** só elas permitem uma comparação que faça sentido.
-- Espalhar os executores pelos workers (anti-afinidade em *pod template*) e medir com mais dados.
+- **Committer próprio do S3** (`spark-hadoop-cloud`, modo "magic"): grava direto no destino, sem a cópia final.
+  O jar já está no BuildConfig, mas a imagem **ainda não foi reconstruída** (o build de 07/10 foi cancelado
+  antes da reunião). Depois do `oc start-build`, ative com as 4 opções `committer` e use `imagePullPolicy: Always`,
+  porque a tag `4.0.1` é reconstruída no lugar.
